@@ -6,3 +6,4 @@ tmp
 ci/test_runs/
 __pycache__
 .directory
+build/
