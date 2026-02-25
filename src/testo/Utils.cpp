@@ -11,12 +11,12 @@
 
 asio::ip::tcp::endpoint parse_tcp_endpoint(const std::string& endpoint) {
 	try {
-		auto semicolon_pos = endpoint.find(":");
-		if (semicolon_pos == std::string::npos) {
-			throw std::runtime_error("No semicolon found");
+		auto colon_pos = endpoint.find(":");
+		if (colon_pos == std::string::npos) {
+			throw std::runtime_error("No colon found");
 		}
-		std::string ip = endpoint.substr(0, semicolon_pos);
-		std::string sport = endpoint.substr(semicolon_pos + 1, endpoint.length() - 1);
+		std::string host = endpoint.substr(0, colon_pos);
+		std::string sport = endpoint.substr(colon_pos + 1, endpoint.length() - 1);
 		unsigned long uport = 0;
 		try {
 			uport = std::stoul(sport);
@@ -24,9 +24,24 @@ asio::ip::tcp::endpoint parse_tcp_endpoint(const std::string& endpoint) {
 				throw std::runtime_error("Port number is greater than 65535");
 			}
 		} catch (const std::exception& error) {
-			std::throw_with_nested(std::runtime_error("Report server port doesn't seem to be valid: " + sport));
+			std::throw_with_nested(std::runtime_error("Port doesn't seem to be valid: " + sport));
 		}
-		return asio::ip::tcp::endpoint(asio::ip::address::from_string(ip), uport);
+
+		// Try to parse as an IP address first
+		asio::error_code ec;
+		auto addr = asio::ip::address::from_string(host, ec);
+		if (!ec) {
+			return asio::ip::tcp::endpoint(addr, uport);
+		}
+
+		// If not a valid IP address, try to resolve as a hostname
+		asio::io_service io_service;
+		asio::ip::tcp::resolver resolver(io_service);
+		auto results = resolver.resolve(host, sport);
+		if (results.empty()) {
+			throw std::runtime_error("Failed to resolve hostname: " + host);
+		}
+		return *results.begin();
 	} catch (const std::exception& error) {
 		std::throw_with_nested(std::runtime_error("Failed to parse endpoint " + endpoint));
 	}
