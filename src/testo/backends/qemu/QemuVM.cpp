@@ -1843,6 +1843,123 @@ void QemuVM::unplug_dvd() {
 
 }
 
+void QemuVM::ram_add(size_t megabytes) {
+	try {
+		auto domain = qemu_connect.domain_lookup_by_name(id());
+
+		static size_t virtio_mem_counter = 0;
+		std::string memdev_id = fmt::format("memdev-hotplug-{}", virtio_mem_counter);
+		std::string virtio_mem_id = fmt::format("virtio-mem-hotplug-{}", virtio_mem_counter);
+		++virtio_mem_counter;
+
+		size_t size_bytes = megabytes * 1024ULL * 1024ULL;
+
+		// 1. Create memory backend object
+		std::string add_memdev = fmt::format(R"({{
+			"execute": "object-add",
+			"arguments": {{
+				"qom-type": "memory-backend-ram",
+				"id": "{}",
+				"size": {}
+			}}
+		}})", memdev_id, size_bytes);
+
+		auto result = domain.monitor_command(add_memdev);
+		if (result.count("error")) {
+			throw std::runtime_error(result.at("error").at("desc").get<std::string>());
+		}
+
+		// 2. Add virtio-mem device
+		std::string add_device = fmt::format(R"({{
+			"execute": "device_add",
+			"arguments": {{
+				"driver": "virtio-mem-pci",
+				"id": "{}",
+				"memdev": "{}",
+				"requested-size": {},
+				"block-size": {}
+			}}
+		}})", virtio_mem_id, memdev_id, size_bytes, 2 * 1024 * 1024);
+
+		result = domain.monitor_command(add_device);
+		if (result.count("error")) {
+			throw std::runtime_error(result.at("error").at("desc").get<std::string>());
+		}
+	} catch (const std::exception& error) {
+		std::throw_with_nested(std::runtime_error(fmt::format("Adding {}Mb of RAM", megabytes)));
+	}
+}
+
+void QemuVM::ram_del(size_t megabytes) {
+	try {
+		auto domain = qemu_connect.domain_lookup_by_name(id());
+
+		size_t size_bytes = megabytes * 1024ULL * 1024ULL;
+
+		// Query virtio-mem devices to find one with enough requested-size
+		std::string query = R"({"execute": "query-memory-devices"})";
+		auto result = domain.monitor_command(query);
+		if (result.count("error")) {
+			throw std::runtime_error(result.at("error").at("desc").get<std::string>());
+		}
+
+		auto& devices = result.at("return");
+		std::string target_id;
+		size_t current_requested_size = 0;
+
+		for (auto& dev : devices) {
+			if (dev.value("type", "") == "virtio-mem") {
+				auto& data = dev.at("data");
+				std::string dev_id = data.value("id", "");
+				size_t req_size = data.value("requested-size", (size_t)0);
+				if (req_size >= size_bytes) {
+					target_id = dev_id;
+					current_requested_size = req_size;
+					break;
+				}
+			}
+		}
+
+		if (target_id.empty()) {
+			throw std::runtime_error("No suitable virtio-mem device found to remove memory from");
+		}
+
+		size_t new_size = current_requested_size - size_bytes;
+
+		if (new_size == 0) {
+			// Remove the device entirely
+			std::string del_device = fmt::format(R"({{
+				"execute": "device_del",
+				"arguments": {{
+					"id": "{}"
+				}}
+			}})", target_id);
+
+			result = domain.monitor_command(del_device);
+			if (result.count("error")) {
+				throw std::runtime_error(result.at("error").at("desc").get<std::string>());
+			}
+		} else {
+			// Reduce the requested size
+			std::string resize_cmd = fmt::format(R"({{
+				"execute": "qom-set",
+				"arguments": {{
+					"path": "/machine/peripheral/{}",
+					"property": "requested-size",
+					"value": {}
+				}}
+			}})", target_id, new_size);
+
+			result = domain.monitor_command(resize_cmd);
+			if (result.count("error")) {
+				throw std::runtime_error(result.at("error").at("desc").get<std::string>());
+			}
+		}
+	} catch (const std::exception& error) {
+		std::throw_with_nested(std::runtime_error(fmt::format("Removing {}Mb of RAM", megabytes)));
+	}
+}
+
 void QemuVM::start() {
 	try {
 		auto domain = qemu_connect.domain_lookup_by_name(id());

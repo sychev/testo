@@ -251,6 +251,8 @@ void VisitorSemantic::visit_action_vm(std::shared_ptr<AST::Action> action) {
 		visit_mouse({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Plug>(action)) {
 		visit_plug({p, stack});
+	} else if (auto p = std::dynamic_pointer_cast<AST::Ram>(action)) {
+		visit_ram({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Start>(action)) {
 		visit_start({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Stop>(action)) {
@@ -644,6 +646,18 @@ void VisitorSemantic::visit_plug_hostdev(const IR::PlugHostDev& plug_hostdev) {
 		parse_usb_addr(plug_hostdev.addr());
 	} catch (const std::exception& error) {
 		throw ExceptionWithPos(plug_hostdev.ast_node->begin(), "Error: spicified usb addr is not valid: " + plug_hostdev.addr());
+	}
+}
+
+void VisitorSemantic::visit_ram(const IR::Ram& ram) {
+	if (ram.is_add()) {
+		current_test->cksum_input << "ram add " << ram.megabytes() << std::endl;
+	} else {
+		current_test->cksum_input << "ram del " << ram.megabytes() << std::endl;
+	}
+
+	if (env->hypervisor() == "hyperv") {
+		throw ExceptionWithPos(ram.ast_node->begin(), "Sorry, Hyper-V does not support this command");
 	}
 }
 

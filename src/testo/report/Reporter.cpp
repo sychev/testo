@@ -463,6 +463,16 @@ void Reporter::plug(std::shared_ptr<IR::Machine> vmc, const std::string& device,
 	report(fmt::format("{}\n", vmc->name()), yellow);
 }
 
+void Reporter::ram(std::shared_ptr<IR::Machine> vmc, bool is_add, size_t megabytes) {
+	std::string action = is_add ? "Adding" : "Removing";
+	std::string direction = is_add ? "to" : "from";
+	report_prefix(blue);
+	report(fmt::format("{} ", action), blue);
+	report(fmt::format("{}Mb ", megabytes), yellow);
+	report(fmt::format("of RAM {} virtual machine ", direction), blue);
+	report(fmt::format("{}\n", vmc->name()), yellow);
+}
+
 void Reporter::exec(std::shared_ptr<IR::Machine> vmc, const IR::Exec& action) {
 	report_prefix(blue);
 	report(fmt::format("Executing {} command in virtual machine ", action.interpreter()), blue);

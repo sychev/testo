@@ -507,6 +507,58 @@ unplug hostdev usb <usb_device_address>
 
 > An attempt to unplug a not-plugged USB device will result in an error.
 
+## ram add
+
+> This action is not available for Hyper-V
+
+Add memory to a running virtual machine using virtio-mem hotplug. The virtual machine must be running at the moment of the call.
+
+```text
+ram add <size>
+```
+
+**Arguments**:
+
+- `size` - Type: size. The amount of memory to add (e.g., `4Gb`, `512Mb`).
+
+**Examples**:
+
+```testo
+  ram add 4Gb
+
+  ram add 512Mb
+```
+
+> The virtual machine must be running for this action to work.
+
+> The guest OS must support virtio-mem for the hotplugged memory to be usable.
+
+## ram del
+
+> This action is not available for Hyper-V
+
+Remove memory from a running virtual machine using virtio-mem hotplug. The virtual machine must be running at the moment of the call. Only memory previously added via `ram add` can be removed.
+
+```text
+ram del <size>
+```
+
+**Arguments**:
+
+- `size` - Type: size. The amount of memory to remove (e.g., `2Gb`, `256Mb`).
+
+**Examples**:
+
+```testo
+  ram del 2Gb
+
+  ram del 256Mb
+```
+
+> The virtual machine must be running for this action to work.
+
+> You can only remove memory that was previously added via `ram add`. Attempting to remove more memory than was hotplugged will result in an error.
+
 ## exec
 
 Execute the specified in the `script` script inside a virtual machine with the interpreter specified in `interpreter`. The `testo-guest-additions` agent must be installed on the virtual machine before calling this action. If the interpreter failed (exit code is not 0), then the current test fails with an error. Stdout and stderr from the `interpreter` are redirected to Testo stdout, therefore you can see the script processing in real time.

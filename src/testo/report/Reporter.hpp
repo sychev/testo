@@ -61,6 +61,7 @@ struct Reporter {
 	void wait(std::shared_ptr<IR::Machine> vmc, const IR::Wait& action);
 	void check(std::shared_ptr<IR::Machine> vmc, const IR::Check& action);
 	void plug(std::shared_ptr<IR::Machine> vmc, const std::string& device, const std::string& device_name, bool is_on);
+	void ram(std::shared_ptr<IR::Machine> vmc, bool is_add, size_t megabytes);
 	void exec(std::shared_ptr<IR::Machine> vmc, const IR::Exec& action);
 	void copy(std::shared_ptr<IR::Controller> controller, const IR::Copy& action);
 	void screenshot(std::shared_ptr<IR::Machine> controller, const IR::Screenshot& action);

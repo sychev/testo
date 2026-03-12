@@ -469,6 +469,14 @@ void HyperVVM::unplug_dvd() {
 	}
 }
 
+void HyperVVM::ram_add(size_t megabytes) {
+	throw std::runtime_error("ram add is not supported for Hyper-V");
+}
+
+void HyperVVM::ram_del(size_t megabytes) {
+	throw std::runtime_error("ram del is not supported for Hyper-V");
+}
+
 void HyperVVM::start() {
 	try {
 		connect.machine(id()).enable();

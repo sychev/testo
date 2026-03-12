@@ -144,6 +144,8 @@ void VisitorInterpreterActionMachine::visit_action(std::shared_ptr<AST::Action> 
 		visit_mouse({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Plug>(action)) {
 		visit_plug({p, stack});
+	} else if (auto p = std::dynamic_pointer_cast<AST::Ram>(action)) {
+		visit_ram({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Start>(action)) {
 		visit_start({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Stop>(action)) {
@@ -944,6 +946,28 @@ void VisitorInterpreterActionMachine::visit_unplug_hostdev(const IR::PlugHostDev
 
 	reporter.plug(vmc, "hostdev usb", plug_hostdev.addr(), false);
 	vmc->vm()->unplug_hostdev_usb(plug_hostdev.addr());
+}
+
+void VisitorInterpreterActionMachine::visit_ram(const IR::Ram& ram) {
+	TRACE();
+
+	try {
+		auto mb = ram.megabytes();
+
+		reporter.ram(vmc, ram.is_add(), mb);
+
+		if (vmc->vm()->state() != VmState::Running) {
+			throw std::runtime_error("virtual machine must be running for memory hotplug");
+		}
+
+		if (ram.is_add()) {
+			vmc->vm()->ram_add(mb);
+		} else {
+			vmc->vm()->ram_del(mb);
+		}
+	} catch (const std::exception& error) {
+		std::throw_with_nested(ActionException(ram.ast_node, current_controller));
+	}
 }
 
 void VisitorInterpreterActionMachine::visit_start(const IR::Start& start) {

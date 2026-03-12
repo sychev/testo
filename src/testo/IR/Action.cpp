@@ -243,6 +243,14 @@ fs::path PlugDVD::path() const {
 	return path;
 }
 
+bool Ram::is_add() const {
+	return ast_node->is_add();
+}
+
+size_t Ram::megabytes() const {
+	return Size(ast_node->size, stack).megabytes();
+}
+
 IR::TimeInterval Shutdown::timeout() const {
 	return OptionSeq(ast_node->option_seq, stack).get<TimeInterval>("timeout", "TESTO_SHUTDOWN_DEFAULT_TIMEOUT");
 }

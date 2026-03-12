@@ -122,6 +122,7 @@ struct Parser {
 	std::shared_ptr<AST::PlugDVD> plug_resource_dvd();
 	std::shared_ptr<AST::PlugHostDev> plug_resource_hostdev();
 	std::shared_ptr<AST::Plug> plug();
+	std::shared_ptr<AST::Ram> ram();
 	std::shared_ptr<AST::Start> start();
 	std::shared_ptr<AST::Stop> stop();
 	std::shared_ptr<AST::Shutdown> shutdown();
