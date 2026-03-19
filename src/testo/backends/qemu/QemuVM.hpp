@@ -74,6 +74,7 @@ private:
 	vir::Connect qemu_connect;
 	std::unordered_map<std::string, std::string> nic_pci_map;
 	std::vector<uint8_t> screenshot_buffer;
+	size_t virtio_mem_counter = 0;
 
 	bool use_external_snapshots() const;
 

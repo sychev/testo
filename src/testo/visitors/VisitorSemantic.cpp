@@ -32,6 +32,17 @@ void VisitorSemantic::visit() {
 	for (auto& test: IR::program->all_selected_tests) {
 		visit_test(test);
 	}
+
+	// Store computed max hotplug RAM into each machine's config
+	for (auto& [machine_name, max_ram] : machine_max_hotplug_ram) {
+		if (max_ram > 0) {
+			auto machine = IR::program->get_machine_or_null(machine_name);
+			if (machine) {
+				machine->config["max_hotplug_ram"] = max_ram;
+			}
+		}
+	}
+
 	for (auto& test: IR::program->all_selected_tests) {
 		//Now that we've checked that all commands are ligit we could check that
 		//all parents have totally separate vms. We can't do that before command block because
@@ -120,6 +131,7 @@ void VisitorSemantic::visit_test(std::shared_ptr<IR::Test> test) {
 		StackPusher<VisitorSemantic> new_ctx(this, test->stack);
 
 		current_test = test;
+		machine_current_hotplug_ram.clear();
 
 		current_test->cksum_input << "TEST NAME = " << test->name() << std::endl;
 		current_test->cksum_input << "PARENTS IN ALPHABETICAL ORDER = ";
@@ -658,6 +670,24 @@ void VisitorSemantic::visit_ram(const IR::Ram& ram) {
 
 	if (env->hypervisor() == "hyperv") {
 		throw ExceptionWithPos(ram.ast_node->begin(), "Sorry, Hyper-V does not support this command");
+	}
+
+	std::string machine_name = current_controller->name();
+	auto& current = machine_current_hotplug_ram[machine_name];
+
+	if (ram.is_add()) {
+		current += ram.megabytes();
+	} else {
+		if (ram.megabytes() > current) {
+			throw ExceptionWithPos(ram.ast_node->begin(),
+				"Error: trying to remove more hotplugged RAM than currently added");
+		}
+		current -= ram.megabytes();
+	}
+
+	auto& max = machine_max_hotplug_ram[machine_name];
+	if (current > max) {
+		max = current;
 	}
 }
 

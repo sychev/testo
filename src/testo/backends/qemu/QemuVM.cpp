@@ -394,15 +394,25 @@ QemuVM::~QemuVM() {
 #ifdef __aarch64__
 std::string QemuVM::compose_config() const {
 	try {
+		uint32_t base_ram = config.at("ram").get<uint32_t>();
+		size_t max_hotplug = config.value("max_hotplug_ram", (size_t)0);
+
 		std::string string_config = fmt::format(R"(
 <domain type='kvm'>
 	<name>{}</name>
 	<metadata>
 		<testo:is_testo_related xmlns:testo='http://testo' value='true'/>
 	</metadata>
-	<memory unit='MiB'>{}</memory>
+	<memory unit='MiB'>{}</memory>)", id(), base_ram);
+
+		if (max_hotplug > 0) {
+			string_config += fmt::format(R"(
+	<maxMemory slots='16' unit='MiB'>{}</maxMemory>)", base_ram + max_hotplug);
+		}
+
+		string_config += fmt::format(R"(
 	<vcpu placement='static'>{}</vcpu>
-		)", id(), config.at("ram").get<uint32_t>(), config.at("cpus").get<uint32_t>());
+		)", config.at("cpus").get<uint32_t>());
 
 		string_config += R"(
 	<os>
@@ -642,10 +652,20 @@ std::string QemuVM::compose_config() const {
 #ifdef __x86_64__
 std::string QemuVM::compose_config() const {
 	try {
+		uint32_t base_ram = config.at("ram").get<uint32_t>();
+		size_t max_hotplug = config.value("max_hotplug_ram", (size_t)0);
+
 		std::string string_config = fmt::format(R"(
 			<domain type='kvm'>
 				<name>{}</name>
-				<memory unit='MiB'>{}</memory>
+				<memory unit='MiB'>{}</memory>)", id(), base_ram);
+
+		if (max_hotplug > 0) {
+			string_config += fmt::format(R"(
+				<maxMemory slots='16' unit='MiB'>{}</maxMemory>)", base_ram + max_hotplug);
+		}
+
+		string_config += fmt::format(R"(
 				<vcpu placement='static'>{}</vcpu>
 				<resource>
 					<partition>/machine</partition>
@@ -672,7 +692,7 @@ std::string QemuVM::compose_config() const {
 				<metadata>
 					<testo:is_testo_related xmlns:testo='http://testo' value='true'/>
 				</metadata>
-		)", id(), config.at("ram").get<uint32_t>(), config.at("cpus").get<uint32_t>(), config.at("cpus").get<uint32_t>());
+		)", config.at("cpus").get<uint32_t>(), config.at("cpus").get<uint32_t>());
 
 		string_config += R"(
 			<os>
@@ -1847,7 +1867,6 @@ void QemuVM::ram_add(size_t megabytes) {
 	try {
 		auto domain = qemu_connect.domain_lookup_by_name(id());
 
-		static size_t virtio_mem_counter = 0;
 		std::string memdev_id = fmt::format("memdev-hotplug-{}", virtio_mem_counter);
 		std::string virtio_mem_id = fmt::format("virtio-mem-hotplug-{}", virtio_mem_counter);
 		++virtio_mem_counter;

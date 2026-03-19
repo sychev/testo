@@ -10,6 +10,7 @@
 #include "../Configs.hpp"
 
 #include <set>
+#include <unordered_map>
 #include <unordered_set>
 
 enum class Tribool: uint8_t { no, yes, maybe };
@@ -110,6 +111,11 @@ struct VisitorSemantic {
 	std::unordered_set<std::shared_ptr<IR::Network>> visited_networks;
 
 	std::shared_ptr<IR::Test> current_test;
+
+	// Per-machine hotplug RAM tracking (reset per test)
+	std::unordered_map<std::string, size_t> machine_current_hotplug_ram;
+	// Global max hotplug RAM per machine (across all tests)
+	std::unordered_map<std::string, size_t> machine_max_hotplug_ram;
 
 	void validate_js(const std::string& js_script);
 	js::Context js_ctx;
