@@ -131,6 +131,18 @@ async function main() {
 
 	fs.watch(DATASET_DIR, fsListener)
 
+	window.addEventListener('beforeunload', () => {
+		let state = store.getState()
+		if (state.selected_doc) {
+			let doc = state.docs[state.selected_doc]
+			let metadata = JSON.stringify(doc, function(key, val) {
+				return val.toFixed ? Number(val.toFixed(2)) : val;
+			}, '\t')
+			let metadata_path = path.join(DATASET_DIR, state.selected_doc + '.json')
+			fs.writeFileSync(metadata_path, metadata, 'utf8')
+		}
+	})
+
 	ReactDOM.render(
 		<Provider store={store}>
 			<App/>
