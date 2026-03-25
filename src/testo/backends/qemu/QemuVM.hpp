@@ -4,6 +4,7 @@
 #include <pugixml/pugixml.hpp>
 #include "../VM.hpp"
 #include <qemu/Host.hpp>
+#include <map>
 #include <unordered_map>
 
 struct QemuVM: public VM {
@@ -75,6 +76,8 @@ private:
 	std::unordered_map<std::string, std::string> nic_pci_map;
 	std::vector<uint8_t> screenshot_buffer;
 	size_t virtio_mem_counter = 0;
+	// key: size in Mb, value: {memdev_id, device_id}
+	std::multimap<size_t, std::pair<std::string, std::string>> virtio_mem_devices;
 
 	bool use_external_snapshots() const;
 

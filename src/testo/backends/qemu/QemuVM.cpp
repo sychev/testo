@@ -1868,7 +1868,7 @@ void QemuVM::ram_add(size_t megabytes) {
 		auto domain = qemu_connect.domain_lookup_by_name(id());
 
 		std::string memdev_id = fmt::format("memdev-hotplug-{}", virtio_mem_counter);
-		std::string virtio_mem_id = fmt::format("virtio-mem-hotplug-{}", virtio_mem_counter);
+		std::string device_id = fmt::format("virtio-mem-hotplug-{}", virtio_mem_counter);
 		++virtio_mem_counter;
 
 		size_t size_bytes = megabytes * 1024ULL * 1024ULL;
@@ -1898,12 +1898,15 @@ void QemuVM::ram_add(size_t megabytes) {
 				"requested-size": {},
 				"block-size": {}
 			}}
-		}})", virtio_mem_id, memdev_id, size_bytes, 2 * 1024 * 1024);
+		}})", device_id, memdev_id, size_bytes, 2 * 1024 * 1024);
 
 		result = domain.monitor_command(add_device);
 		if (result.count("error")) {
 			throw std::runtime_error(result.at("error").at("desc").get<std::string>());
 		}
+
+		// Remember this "stick" so we can remove it later
+		virtio_mem_devices.emplace(megabytes, std::make_pair(memdev_id, device_id));
 	} catch (const std::exception& error) {
 		std::throw_with_nested(std::runtime_error(fmt::format("Adding {}Mb of RAM", megabytes)));
 	}
@@ -1911,69 +1914,43 @@ void QemuVM::ram_add(size_t megabytes) {
 
 void QemuVM::ram_del(size_t megabytes) {
 	try {
+		// Find a "stick" with the exact requested size
+		auto it = virtio_mem_devices.find(megabytes);
+		if (it == virtio_mem_devices.end()) {
+			throw std::runtime_error(fmt::format(
+				"No hotplugged RAM stick of size {}Mb found to remove", megabytes));
+		}
+
+		auto [memdev_id, device_id] = it->second;
 		auto domain = qemu_connect.domain_lookup_by_name(id());
 
-		size_t size_bytes = megabytes * 1024ULL * 1024ULL;
+		// 1. Remove the virtio-mem device
+		std::string del_device = fmt::format(R"({{
+			"execute": "device_del",
+			"arguments": {{
+				"id": "{}"
+			}}
+		}})", device_id);
 
-		// Query virtio-mem devices to find one with enough requested-size
-		std::string query = R"({"execute": "query-memory-devices"})";
-		auto result = domain.monitor_command(query);
+		auto result = domain.monitor_command(del_device);
 		if (result.count("error")) {
 			throw std::runtime_error(result.at("error").at("desc").get<std::string>());
 		}
 
-		auto& devices = result.at("return");
-		std::string target_id;
-		size_t current_requested_size = 0;
+		// 2. Remove the memory backend object
+		std::string del_memdev = fmt::format(R"({{
+			"execute": "object-del",
+			"arguments": {{
+				"id": "{}"
+			}}
+		}})", memdev_id);
 
-		for (auto& dev : devices) {
-			if (dev.value("type", "") == "virtio-mem") {
-				auto& data = dev.at("data");
-				std::string dev_id = data.value("id", "");
-				size_t req_size = data.value("requested-size", (size_t)0);
-				if (req_size >= size_bytes) {
-					target_id = dev_id;
-					current_requested_size = req_size;
-					break;
-				}
-			}
+		result = domain.monitor_command(del_memdev);
+		if (result.count("error")) {
+			throw std::runtime_error(result.at("error").at("desc").get<std::string>());
 		}
 
-		if (target_id.empty()) {
-			throw std::runtime_error("No suitable virtio-mem device found to remove memory from");
-		}
-
-		size_t new_size = current_requested_size - size_bytes;
-
-		if (new_size == 0) {
-			// Remove the device entirely
-			std::string del_device = fmt::format(R"({{
-				"execute": "device_del",
-				"arguments": {{
-					"id": "{}"
-				}}
-			}})", target_id);
-
-			result = domain.monitor_command(del_device);
-			if (result.count("error")) {
-				throw std::runtime_error(result.at("error").at("desc").get<std::string>());
-			}
-		} else {
-			// Reduce the requested size
-			std::string resize_cmd = fmt::format(R"({{
-				"execute": "qom-set",
-				"arguments": {{
-					"path": "/machine/peripheral/{}",
-					"property": "requested-size",
-					"value": {}
-				}}
-			}})", target_id, new_size);
-
-			result = domain.monitor_command(resize_cmd);
-			if (result.count("error")) {
-				throw std::runtime_error(result.at("error").at("desc").get<std::string>());
-			}
-		}
+		virtio_mem_devices.erase(it);
 	} catch (const std::exception& error) {
 		std::throw_with_nested(std::runtime_error(fmt::format("Removing {}Mb of RAM", megabytes)));
 	}
