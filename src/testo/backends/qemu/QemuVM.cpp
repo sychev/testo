@@ -3,6 +3,7 @@
 #include "QemuFlashDrive.hpp"
 #include "QemuGuestAdditions.hpp"
 #include "QemuEnvironment.hpp"
+#include <qemu/XML.hpp>
 
 #include <coro/Timer.h>
 #include <coro/Timeout.h>
@@ -908,6 +909,7 @@ nlohmann::json QemuVM::make_snapshot(const std::string& snapshot) {
 		auto domain = qemu_connect.domain_lookup_by_name(id());
 
 		nlohmann::json umounted_folders = nlohmann::json::array();
+		nlohmann::json detached_fs_devices = nlohmann::json::array();
 		if (config.count("shared_folder") && config.at("shared_folder").size() && (state() == VmState::Suspended)) {
 			resume();
 			QemuGuestAdditions ga(domain);
@@ -920,6 +922,18 @@ nlohmann::json QemuVM::make_snapshot(const std::string& snapshot) {
 					}
 				}
 			}
+
+			// Detach filesystem devices from the domain to bypass
+			// libvirt migration check during snapshot creation
+			{
+				auto domain_xml = domain.dump_xml();
+				auto devices_node = domain_xml.child("domain").child("devices");
+				for (auto fs_node = devices_node.child("filesystem"); fs_node; fs_node = fs_node.next_sibling("filesystem")) {
+					detached_fs_devices.push_back(vir::node_to_string(fs_node));
+					domain.detach_device(fs_node, {VIR_DOMAIN_AFFECT_LIVE, VIR_DOMAIN_AFFECT_CONFIG});
+				}
+			}
+
 			suspend();
 		}
 
@@ -979,12 +993,25 @@ nlohmann::json QemuVM::make_snapshot(const std::string& snapshot) {
 			}
 		}
 
-		if (umounted_folders.size()) {
+		if (detached_fs_devices.size() || umounted_folders.size()) {
 			resume();
-			QemuGuestAdditions ga(domain);
-			for (auto& folder_status: umounted_folders) {
-				ga.mount(folder_status.at("name"), folder_status.at("guest_path").get<std::string>(), false);
+			domain = qemu_connect.domain_lookup_by_name(id());
+
+			// Reattach previously detached filesystem devices
+			for (auto& fs_xml_str : detached_fs_devices) {
+				pugi::xml_document fs_doc;
+				fs_doc.load_string(fs_xml_str.get<std::string>().c_str());
+				domain.attach_device(fs_doc, {VIR_DOMAIN_AFFECT_LIVE, VIR_DOMAIN_AFFECT_CONFIG});
 			}
+
+			// Remount shared folders that were unmounted inside the guest
+			if (umounted_folders.size()) {
+				QemuGuestAdditions ga(domain);
+				for (auto& folder_status: umounted_folders) {
+					ga.mount(folder_status.at("name"), folder_status.at("guest_path").get<std::string>(), false);
+				}
+			}
+
 			suspend();
 		}
 
@@ -992,6 +1019,7 @@ nlohmann::json QemuVM::make_snapshot(const std::string& snapshot) {
 		result["config"] = domain.dump_xml_base64();
 		result["nics"] = nic_pci_map;
 		result["automaticaly_umounted_shared_folders"] = umounted_folders;
+		result["detached_fs_devices"] = detached_fs_devices;
 		return result;
 	} catch (const std::exception& error) {
 		std::throw_with_nested(std::runtime_error(fmt::format("Taking snapshot {}", snapshot)));
@@ -1046,12 +1074,30 @@ void QemuVM::rollback(const std::string& snapshot, const nlohmann::json& opaque)
 			domain.revert_to_snapshot(snap);
 		}
 
-		if (opaque.count("automaticaly_umounted_shared_folders") && opaque.at("automaticaly_umounted_shared_folders").size() && (state() == VmState::Suspended)) {
+		bool has_detached_fs = opaque.count("detached_fs_devices") && opaque.at("detached_fs_devices").size();
+		bool has_umounted_folders = opaque.count("automaticaly_umounted_shared_folders") && opaque.at("automaticaly_umounted_shared_folders").size();
+
+		if ((has_detached_fs || has_umounted_folders) && (state() == VmState::Suspended)) {
 			resume();
-			QemuGuestAdditions ga(domain);
-			for (auto& folder_status: opaque.at("automaticaly_umounted_shared_folders")) {
-				ga.mount(folder_status.at("name"), folder_status.at("guest_path").get<std::string>(), false);
+			domain = qemu_connect.domain_lookup_by_name(id());
+
+			// Reattach filesystem devices that were detached during snapshot
+			if (has_detached_fs) {
+				for (auto& fs_xml_str : opaque.at("detached_fs_devices")) {
+					pugi::xml_document fs_doc;
+					fs_doc.load_string(fs_xml_str.get<std::string>().c_str());
+					domain.attach_device(fs_doc, {VIR_DOMAIN_AFFECT_LIVE, VIR_DOMAIN_AFFECT_CONFIG});
+				}
 			}
+
+			// Remount shared folders that were unmounted inside the guest
+			if (has_umounted_folders) {
+				QemuGuestAdditions ga(domain);
+				for (auto& folder_status: opaque.at("automaticaly_umounted_shared_folders")) {
+					ga.mount(folder_status.at("name"), folder_status.at("guest_path").get<std::string>(), false);
+				}
+			}
+
 			suspend();
 		}
 	} catch (const std::exception& error) {
