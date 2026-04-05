@@ -52,25 +52,44 @@ void VisitorInterpreterAction::visit_repl(const IR::REPL& repl) {
 	try {
 		reporter.repl_begin(current_controller, repl);
 		REPL_mode_is_active = true;
-		std::cout << "Now you can type commands line-by-line. Use Ctrl-C to exit REPL mode." << std::endl;
+		std::cout << "Now you can type commands line-by-line. Use \\ at the end of a line to continue on the next line. Use Ctrl-C to exit REPL mode." << std::endl;
 		std::string all_lines;
-		while (true) {
-			std::cout << "> ";
-			std::string line;
-			std::getline(std::cin, line);
-			if (std::cin.fail() || std::cin.eof()) {
-				std::cin.clear();
+		bool active = true;
+		while (active) {
+			std::string accumulated;
+			bool continuation = false;
+			do {
+				std::cout << (continuation ? "... " : "> ");
+				std::string line;
+				std::getline(std::cin, line);
+				if (std::cin.fail() || std::cin.eof()) {
+					std::cin.clear();
+					active = false;
+					break;
+				}
+				trim(line);
+				if (!line.empty() && line.back() == '\\') {
+					line.pop_back();
+					trim(line);
+					accumulated += line + "\n";
+					continuation = true;
+				} else {
+					accumulated += line + "\n";
+					continuation = false;
+				}
+			} while (continuation);
+			if (!active) {
 				break;
 			}
-			trim(line);
-			if (!line.size()) {
+			trim(accumulated);
+			if (accumulated.empty()) {
 				continue;
 			}
-			line += "\n";
+			accumulated += "\n";
 			try {
-				std::shared_ptr<AST::Action> ast_action = Parser(".", line, false).action();
+				std::shared_ptr<AST::Action> ast_action = Parser(".", accumulated, false).action();
 				visit_action(ast_action);
-				all_lines += line;
+				all_lines += accumulated;
 			}
 			catch (const AbortException&) {
 				throw;
