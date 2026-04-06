@@ -23,6 +23,9 @@ struct TextRecognizerCache {
 
 	std::vector<Prediction> predictions;
 
+	// Set by EasyOCR backend; empty when using native backend.
+	std::string recognized_text;
+
 	int match(size_t x, const std::u32string& query) const;
 	void print() const;
 };

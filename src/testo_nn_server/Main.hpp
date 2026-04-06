@@ -16,6 +16,7 @@
 #include <ghc/filesystem.hpp>
 
 #include "nn/OnnxRuntime.hpp"
+#include "nn/BackendConfig.hpp"
 #include "MessageHandler.hpp"
 
 namespace fs = ghc::filesystem;
@@ -78,7 +79,8 @@ nlohmann::json load_settings(const std::string& settings_path) {
 	"port": 8156,
 	"log_level": "info",
 	"use_gpu": false,
-	"gpu_id": 0
+	"gpu_id": 0,
+	"text_detection_backend": "native"
 }
 )";
 	}
@@ -94,6 +96,25 @@ void app_main(const nlohmann::json& settings) {
 	try {
 		setup_logs(settings);
 
+		// Configure text detection backend
+		std::string backend_str = settings.value("text_detection_backend", "native");
+		auto& backend_config = nn::BackendConfig::instance();
+
+		if (backend_str == "easyocr") {
+			backend_config.text_backend = nn::TextBackend::EasyOCR;
+
+			if (settings.count("easyocr_languages")) {
+				backend_config.easyocr_languages.clear();
+				for (auto& lang : settings.at("easyocr_languages")) {
+					backend_config.easyocr_languages.push_back(lang.get<std::string>());
+				}
+			}
+			backend_config.easyocr_gpu = settings.value("easyocr_gpu", false);
+		} else if (backend_str != "native") {
+			throw std::runtime_error("Unknown text_detection_backend: " + backend_str +
+				". Supported values: \"native\", \"easyocr\"");
+		}
+
 		bool use_gpu = settings.value("use_gpu", false);
 		size_t gpu_id = settings.value("gpu_id", 0);
 
@@ -106,6 +127,7 @@ void app_main(const nlohmann::json& settings) {
 		spdlog::info("Starting testo nn server");
 		spdlog::info("Testo framework version: {}", TESTO_VERSION);
 		spdlog::info("GPU mode enabled: {}", use_gpu);
+		spdlog::info("Text detection backend: {}", backend_str);
 		local_handler(settings);
 	} catch (const std::exception& error) {
 		spdlog::error(error.what());
