@@ -124,6 +124,9 @@ struct Parser {
 	std::shared_ptr<AST::Plug> plug();
 	std::shared_ptr<AST::Start> start();
 	std::shared_ptr<AST::Stop> stop();
+	std::shared_ptr<AST::Lid> lid();
+	std::shared_ptr<AST::Battery> battery();
+	std::shared_ptr<AST::Charging> charging();
 	std::shared_ptr<AST::Shutdown> shutdown();
 	std::shared_ptr<AST::Exec> exec();
 	std::shared_ptr<AST::Copy> copy();

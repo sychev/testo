@@ -247,6 +247,18 @@ IR::TimeInterval Shutdown::timeout() const {
 	return OptionSeq(ast_node->option_seq, stack).get<TimeInterval>("timeout", "TESTO_SHUTDOWN_DEFAULT_TIMEOUT");
 }
 
+std::string Lid::state() const {
+	return ast_node->state.value();
+}
+
+int32_t Battery::charge() const {
+	return std::stoi(ast_node->charge->to_string());
+}
+
+std::string Charging::state() const {
+	return ast_node->state.value();
+}
+
 std::string Exec::interpreter() const {
 	return ast_node->process.value();
 }

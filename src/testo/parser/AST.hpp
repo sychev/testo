@@ -1003,6 +1003,66 @@ struct REPL: public ElementaryAction {
 	using ElementaryAction::ElementaryAction;
 };
 
+struct Lid: public Action {
+	Lid(Token lid_, Token state_):
+		lid(std::move(lid_)), state(std::move(state_)) {}
+
+	Pos begin() const override {
+		return lid.begin();
+	}
+
+	Pos end() const override {
+		return state.end();
+	}
+
+	std::string to_string() const override {
+		return lid.value() + " " + state.value();
+	}
+
+	Token lid;
+	Token state;
+};
+
+struct Battery: public Action {
+	Battery(Token battery_, std::shared_ptr<Number> charge_):
+		battery(std::move(battery_)), charge(std::move(charge_)) {}
+
+	Pos begin() const override {
+		return battery.begin();
+	}
+
+	Pos end() const override {
+		return charge->end();
+	}
+
+	std::string to_string() const override {
+		return battery.value() + " " + charge->to_string();
+	}
+
+	Token battery;
+	std::shared_ptr<Number> charge;
+};
+
+struct Charging: public Action {
+	Charging(Token charging_, Token state_):
+		charging(std::move(charging_)), state(std::move(state_)) {}
+
+	Pos begin() const override {
+		return charging.begin();
+	}
+
+	Pos end() const override {
+		return state.end();
+	}
+
+	std::string to_string() const override {
+		return charging.value() + " " + state.value();
+	}
+
+	Token charging;
+	Token state;
+};
+
 struct Shutdown: public Action {
 	Shutdown(Token shutdown_, std::shared_ptr<OptionSeq> option_seq_):
 		shutdown(std::move(shutdown_)), option_seq(std::move(option_seq_)) {}

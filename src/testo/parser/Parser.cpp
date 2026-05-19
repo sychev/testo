@@ -563,6 +563,9 @@ std::shared_ptr<AST::Controller> Parser::controller() {
 				{"host_path", {false, [&]{ return string(); }}},
 				{"readonly", {false, [&]{ return boolean(); }}},
 			}); }}},
+			{"lid", {false, [&]{ return string(); }}},
+			{"battery", {false, [&]{ return number(); }}},
+			{"charging", {false, [&]{ return string(); }}},
 		});
 	} else if (controller.type() == Token::category::flash) {
 		block = attr_block({
@@ -667,6 +670,12 @@ std::shared_ptr<Action> Parser::action() {
 		action = start();
 	} else if (test_id("stop")) {
 		action = stop();
+	} else if (test_id("lid")) {
+		action = lid();
+	} else if (test_id("battery")) {
+		action = battery();
+	} else if (test_id("charging")) {
+		action = charging();
 	} else if (test_id("shutdown")) {
 		action = shutdown();
 	} else if (test_id("exec")) {
@@ -985,6 +994,24 @@ std::shared_ptr<Start> Parser::start() {
 std::shared_ptr<Stop> Parser::stop() {
 	Token stop_token = eat_id("stop");
 	return std::make_shared<Stop>(stop_token);
+}
+
+std::shared_ptr<Lid> Parser::lid() {
+	Token lid_token = eat_id("lid");
+	Token state_token = eat_id({"open", "close"});
+	return std::make_shared<Lid>(lid_token, state_token);
+}
+
+std::shared_ptr<Battery> Parser::battery() {
+	Token battery_token = eat_id("battery");
+	auto charge = number();
+	return std::make_shared<Battery>(battery_token, charge);
+}
+
+std::shared_ptr<Charging> Parser::charging() {
+	Token charging_token = eat_id("charging");
+	Token state_token = eat_id({"on", "off"});
+	return std::make_shared<Charging>(charging_token, state_token);
 }
 
 std::shared_ptr<REPL> Parser::repl() {

@@ -326,6 +326,28 @@ void Reporter::stop(std::shared_ptr<IR::Machine> vmc) {
 	report(fmt::format("{}\n", vmc->name()), yellow);
 }
 
+void Reporter::lid(std::shared_ptr<IR::Machine> vmc, const IR::Lid& action) {
+	report_prefix(blue);
+	report(fmt::format("{} lid on virtual machine ", action.state() == "close" ? "Closing" : "Opening"), blue);
+	report(fmt::format("{}\n", vmc->name()), yellow);
+}
+
+void Reporter::battery(std::shared_ptr<IR::Machine> vmc, const IR::Battery& action) {
+	report_prefix(blue);
+	report(fmt::format("Setting battery charge to "), blue);
+	report(fmt::format("{}% ", action.charge()), yellow);
+	report(fmt::format("on virtual machine "), blue);
+	report(fmt::format("{}\n", vmc->name()), yellow);
+}
+
+void Reporter::charging(std::shared_ptr<IR::Machine> vmc, const IR::Charging& action) {
+	report_prefix(blue);
+	report(fmt::format("Turning charging "), blue);
+	report(fmt::format("{} ", action.state()), yellow);
+	report(fmt::format("on virtual machine "), blue);
+	report(fmt::format("{}\n", vmc->name()), yellow);
+}
+
 void Reporter::shutdown(std::shared_ptr<IR::Machine> vmc, const IR::Shutdown& action) {
 	report_prefix(blue);
 	report(fmt::format("Shutting down virtual machine "), blue);

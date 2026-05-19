@@ -38,6 +38,9 @@ struct QemuVM: public VM {
 	void start() override;
 	void stop() override;
 	void power_button() override;
+	void set_lid(const std::string& state) override;
+	void set_battery(uint32_t charge) override;
+	void set_charging(const std::string& state) override;
 	void suspend() override;
 	void resume() override;
 	stb::Image<stb::RGB> screenshot() override;

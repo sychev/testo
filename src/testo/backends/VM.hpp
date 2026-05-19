@@ -46,6 +46,9 @@ struct VM {
 	virtual void start() = 0;
 	virtual void stop() = 0;
 	virtual void power_button() = 0;
+	virtual void set_lid(const std::string& state) = 0;
+	virtual void set_battery(uint32_t charge) = 0;
+	virtual void set_charging(const std::string& state) = 0;
 	virtual void suspend() = 0;
 	virtual void resume() = 0;
 	virtual stb::Image<stb::RGB> screenshot() = 0;

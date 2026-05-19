@@ -52,6 +52,9 @@ struct Reporter {
 	//vm actions
 	void start(std::shared_ptr<IR::Machine> vmc);
 	void stop(std::shared_ptr<IR::Machine> vmc);
+	void lid(std::shared_ptr<IR::Machine> vmc, const IR::Lid& action);
+	void battery(std::shared_ptr<IR::Machine> vmc, const IR::Battery& action);
+	void charging(std::shared_ptr<IR::Machine> vmc, const IR::Charging& action);
 	void shutdown(std::shared_ptr<IR::Machine> vmc, const IR::Shutdown& action);
 	void press_key(std::shared_ptr<IR::Machine> vmc, const IR::KeySpec& key_spec);
 	void hold_key(std::shared_ptr<IR::Machine> vmc, const IR::Hold& action);

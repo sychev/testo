@@ -212,6 +212,21 @@ struct Shutdown:Node<AST::Shutdown> {
 	TimeInterval timeout() const;
 };
 
+struct Lid: Node<AST::Lid> {
+	using Node<AST::Lid>::Node;
+	std::string state() const;
+};
+
+struct Battery: Node<AST::Battery> {
+	using Node<AST::Battery>::Node;
+	int32_t charge() const;
+};
+
+struct Charging: Node<AST::Charging> {
+	using Node<AST::Charging>::Node;
+	std::string state() const;
+};
+
 struct Exec: Node<AST::Exec> {
 	Exec(std::shared_ptr<ASTType> ast_node, std::shared_ptr<StackNode> stack, std::shared_ptr<VarMap> var_map_):
 		Node(std::move(ast_node), std::move(stack)), var_map(std::move(var_map_)) {}

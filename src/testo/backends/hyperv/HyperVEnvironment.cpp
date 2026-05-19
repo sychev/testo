@@ -39,6 +39,27 @@ void HyperVEnvironment::validate_vm_config(const nlohmann::json& config) {
 	if (config.count("shared_folder")) {
 		throw std::runtime_error("Shared folders are not supported for Hyper-V yet");
 	}
+
+	if (config.count("lid")) {
+		auto lid = config.at("lid").get<std::string>();
+		if (lid != "open" && lid != "close") {
+			throw std::runtime_error("Unsupported value for \"lid\" attribute: \"" + lid + "\", expected \"open\" or \"close\"");
+		}
+	}
+
+	if (config.count("battery")) {
+		auto charge = config.at("battery").get<int32_t>();
+		if (charge < 0 || charge > 100) {
+			throw std::runtime_error("Unsupported value for \"battery\" attribute: " + std::to_string(charge) + ", expected a value in range 0..100");
+		}
+	}
+
+	if (config.count("charging")) {
+		auto charging = config.at("charging").get<std::string>();
+		if (charging != "on" && charging != "off") {
+			throw std::runtime_error("Unsupported value for \"charging\" attribute: \"" + charging + "\", expected \"on\" or \"off\"");
+		}
+	}
 }
 
 void HyperVEnvironment::validate_flash_drive_config(const nlohmann::json& config) {

@@ -148,6 +148,12 @@ void VisitorInterpreterActionMachine::visit_action(std::shared_ptr<AST::Action> 
 		visit_start({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Stop>(action)) {
 		visit_stop({p, stack});
+	} else if (auto p = std::dynamic_pointer_cast<AST::Lid>(action)) {
+		visit_lid({p, stack});
+	} else if (auto p = std::dynamic_pointer_cast<AST::Battery>(action)) {
+		visit_battery({p, stack});
+	} else if (auto p = std::dynamic_pointer_cast<AST::Charging>(action)) {
+		visit_charging({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Shutdown>(action)) {
 		visit_shutdown({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Exec>(action)) {
@@ -973,6 +979,39 @@ void VisitorInterpreterActionMachine::visit_stop(const IR::Stop& stop) {
 		vmc->vm()->stop();
 	} catch (const std::exception& error) {
 		std::throw_with_nested(ActionException(stop.ast_node, current_controller));
+	}
+}
+
+void VisitorInterpreterActionMachine::visit_lid(const IR::Lid& lid) {
+	TRACE();
+
+	try {
+		reporter.lid(vmc, lid);
+		vmc->vm()->set_lid(lid.state());
+	} catch (const std::exception& error) {
+		std::throw_with_nested(ActionException(lid.ast_node, current_controller));
+	}
+}
+
+void VisitorInterpreterActionMachine::visit_battery(const IR::Battery& battery) {
+	TRACE();
+
+	try {
+		reporter.battery(vmc, battery);
+		vmc->vm()->set_battery(battery.charge());
+	} catch (const std::exception& error) {
+		std::throw_with_nested(ActionException(battery.ast_node, current_controller));
+	}
+}
+
+void VisitorInterpreterActionMachine::visit_charging(const IR::Charging& charging) {
+	TRACE();
+
+	try {
+		reporter.charging(vmc, charging);
+		vmc->vm()->set_charging(charging.state());
+	} catch (const std::exception& error) {
+		std::throw_with_nested(ActionException(charging.ast_node, current_controller));
 	}
 }
 

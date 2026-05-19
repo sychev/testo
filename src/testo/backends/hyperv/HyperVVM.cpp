@@ -509,6 +509,18 @@ void HyperVVM::power_button() {
 	}
 }
 
+void HyperVVM::set_lid(const std::string& state) {
+	throw std::runtime_error("set_lid is not implemented yet");
+}
+
+void HyperVVM::set_battery(uint32_t charge) {
+	throw std::runtime_error("set_battery is not implemented yet");
+}
+
+void HyperVVM::set_charging(const std::string& state) {
+	throw std::runtime_error("set_charging is not implemented yet");
+}
+
 uint8_t Table5[1 << 5] = {0, 8, 16, 25, 33, 41, 49, 58, 66, 74, 82, 90, 99, 107, 115, 123, 132,
  140, 148, 156, 165, 173, 181, 189, 197, 206, 214, 222, 230, 239, 247, 255};
 

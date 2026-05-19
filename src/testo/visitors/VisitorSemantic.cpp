@@ -255,6 +255,12 @@ void VisitorSemantic::visit_action_vm(std::shared_ptr<AST::Action> action) {
 		visit_start({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Stop>(action)) {
 		visit_stop({p, stack});
+	} else if (auto p = std::dynamic_pointer_cast<AST::Lid>(action)) {
+		visit_lid({p, stack});
+	} else if (auto p = std::dynamic_pointer_cast<AST::Battery>(action)) {
+		visit_battery({p, stack});
+	} else if (auto p = std::dynamic_pointer_cast<AST::Charging>(action)) {
+		visit_charging({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Shutdown>(action)) {
 		visit_shutdown({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Exec>(action)) {
@@ -657,6 +663,34 @@ void VisitorSemantic::visit_stop(const IR::Stop& stop) {
 
 void VisitorSemantic::visit_shutdown(const IR::Shutdown& shutdown) {
 	current_test->cksum_input << "shutdown timeout " << shutdown.timeout().value().count() << std::endl;
+}
+
+void VisitorSemantic::visit_lid(const IR::Lid& lid) {
+	auto vmc = std::dynamic_pointer_cast<IR::Machine>(current_controller);
+	if (!vmc || !vmc->config.count("lid")) {
+		throw ExceptionWithPos(lid.ast_node->begin(), "Error: \"lid\" action requires \"lid\" attribute in machine config");
+	}
+	current_test->cksum_input << "lid " << lid.state() << std::endl;
+}
+
+void VisitorSemantic::visit_battery(const IR::Battery& battery) {
+	auto vmc = std::dynamic_pointer_cast<IR::Machine>(current_controller);
+	if (!vmc || !vmc->config.count("battery")) {
+		throw ExceptionWithPos(battery.ast_node->begin(), "Error: \"battery\" action requires \"battery\" attribute in machine config");
+	}
+	int32_t charge = battery.charge();
+	if (charge < 0 || charge > 100) {
+		throw ExceptionWithPos(battery.ast_node->begin(), "Error: battery charge must be in range 0..100");
+	}
+	current_test->cksum_input << "battery " << charge << std::endl;
+}
+
+void VisitorSemantic::visit_charging(const IR::Charging& charging) {
+	auto vmc = std::dynamic_pointer_cast<IR::Machine>(current_controller);
+	if (!vmc || !vmc->config.count("charging")) {
+		throw ExceptionWithPos(charging.ast_node->begin(), "Error: \"charging\" action requires \"charging\" attribute in machine config");
+	}
+	current_test->cksum_input << "charging " << charging.state() << std::endl;
 }
 
 void VisitorSemantic::visit_exec(const IR::Exec& exec) {

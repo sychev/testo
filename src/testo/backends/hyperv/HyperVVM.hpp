@@ -37,6 +37,9 @@ struct HyperVVM: VM {
 	void suspend() override;
 	void resume() override;
 	void power_button() override;
+	void set_lid(const std::string& state) override;
+	void set_battery(uint32_t charge) override;
+	void set_charging(const std::string& state) override;
 	stb::Image<stb::RGB> screenshot() override;
 
 	bool is_flash_plugged(std::shared_ptr<FlashDrive> fd) override;

@@ -623,6 +623,24 @@ std::string QemuVM::compose_config() const {
 			)";
 		}
 
+		if (config.count("lid")) {
+			string_config += R"(
+		<lidbutton backend="qmp" />
+			)";
+		}
+
+		if (config.count("battery")) {
+			string_config += R"(
+		<battery backend="qmp" />
+			)";
+		}
+
+		if (config.count("charging")) {
+			string_config += R"(
+		<acad backend="qmp" />
+			)";
+		}
+
 		string_config += R"(
 		<redirdev bus='usb' type='spicevmc'>
 		</redirdev>
@@ -843,6 +861,21 @@ std::string QemuVM::compose_config() const {
 			<channel type='spicevmc'>
 				<target type='virtio' name='com.redhat.spice.0'/>
 			</channel>)";
+		}
+
+		if (config.count("lid")) {
+			string_config += R"(
+			<lidbutton backend="qmp" />)";
+		}
+
+		if (config.count("battery")) {
+			string_config += R"(
+			<battery backend="qmp" />)";
+		}
+
+		if (config.count("charging")) {
+			string_config += R"(
+			<acad backend="qmp" />)";
 		}
 
 		string_config += "\n </devices> \n </domain>";
@@ -1882,6 +1915,18 @@ void QemuVM::power_button() {
 	catch (const std::exception& error) {
 		std::throw_with_nested(std::runtime_error("Shutdowning vm"));
 	}
+}
+
+void QemuVM::set_lid(const std::string& state) {
+	throw std::runtime_error("set_lid is not implemented yet");
+}
+
+void QemuVM::set_battery(uint32_t charge) {
+	throw std::runtime_error("set_battery is not implemented yet");
+}
+
+void QemuVM::set_charging(const std::string& state) {
+	throw std::runtime_error("set_charging is not implemented yet");
 }
 
 void QemuVM::suspend() {
