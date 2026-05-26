@@ -7,6 +7,7 @@
 #include "../IR/Macro.hpp"
 #include "../report/Reporter.hpp"
 #include "../Configs.hpp"
+#include "VisitorInterpreterAction.hpp"
 
 struct VisitorInterpreter {
 	VisitorInterpreter(const VisitorInterpreterConfig& config);
@@ -57,4 +58,12 @@ private:
 	void create_all_controllers_snapshots(const std::shared_ptr<IR::Test>& test);
 
 	void stop_all_vms(const std::shared_ptr<IR::Test>& test);
+
+	// If the test has a valid _tmp snapshot on every controller with matching
+	// resume info, restores those snapshots and returns a populated context.
+	// Returns nullptr when not eligible; in that case the caller proceeds
+	// through the normal parent-restore path.
+	std::shared_ptr<ResumeContext> setup_resume_if_eligible(const std::shared_ptr<IR::Test>& test);
+
+	std::shared_ptr<ResumeContext> resume_context;
 };

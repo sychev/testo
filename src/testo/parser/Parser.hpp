@@ -128,6 +128,7 @@ struct Parser {
 	std::shared_ptr<AST::Exec> exec();
 	std::shared_ptr<AST::Copy> copy();
 	std::shared_ptr<AST::Screenshot> screenshot();
+	std::shared_ptr<AST::Action> snapshot_action();
 	template <typename BaseType>
 	std::shared_ptr<AST::MacroCall<BaseType>> macro_call();
 	std::shared_ptr<AST::IfClause> if_clause();

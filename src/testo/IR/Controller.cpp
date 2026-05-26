@@ -149,4 +149,34 @@ fs::path Controller::main_file() const {
 	return result;
 }
 
+void Controller::save_resume_info(const std::string& snapshot, const ResumeInfo& info) {
+	fs::path metadata_file = get_metadata_dir();
+	metadata_file /= id() + "_" + snapshot;
+	set_metadata(metadata_file, "resume", info.to_json());
+}
+
+bool Controller::has_resume_info(const std::string& snapshot) {
+	fs::path metadata_file = get_metadata_dir();
+	metadata_file /= id() + "_" + snapshot;
+	if (!fs::exists(metadata_file)) {
+		return false;
+	}
+	try {
+		auto metadata = read_metadata_file(metadata_file);
+		return metadata.count("resume") > 0;
+	} catch (const std::exception&) {
+		return false;
+	}
+}
+
+ResumeInfo Controller::load_resume_info(const std::string& snapshot) {
+	fs::path metadata_file = get_metadata_dir();
+	metadata_file /= id() + "_" + snapshot;
+	auto metadata = read_metadata_file(metadata_file);
+	if (!metadata.count("resume")) {
+		throw std::runtime_error("snapshot " + snapshot + " has no resume info");
+	}
+	return ResumeInfo::from_json(metadata.at("resume"));
+}
+
 }

@@ -5,6 +5,7 @@
 #include <map>
 #include <string>
 #include <stdexcept>
+#include <nlohmann/json.hpp>
 
 struct StackNode {
 	StackNode() = default;
@@ -20,6 +21,15 @@ struct StackNode {
 	std::shared_ptr<StackNode> parent;
 	std::map<std::string, std::string> params;
 };
+
+// Serializes a chain of StackNode frames as a JSON array, innermost frame first.
+nlohmann::json stack_to_json(const std::shared_ptr<StackNode>& stack);
+
+// Reconstructs a chain of StackNode frames from JSON produced by stack_to_json.
+std::shared_ptr<StackNode> stack_from_json(const nlohmann::json& frames);
+
+// Structural equality of two stack chains: same depth, same params at each level.
+bool stacks_equal(const std::shared_ptr<StackNode>& a, const std::shared_ptr<StackNode>& b);
 
 template <typename StackHolder>
 struct StackPusher {

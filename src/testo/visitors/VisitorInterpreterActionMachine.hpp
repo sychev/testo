@@ -68,7 +68,6 @@ struct VisitorInterpreterActionMachine: public VisitorInterpreterAction {
 	nlohmann::json eval_js(const std::string& script, const stb::Image<stb::RGB>& screenshot);
 
 	std::shared_ptr<IR::Machine> vmc;
-	std::shared_ptr<IR::Test> current_test;
 	coro::Timer timer;
 
 private:

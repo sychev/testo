@@ -11,7 +11,7 @@ struct VisitorInterpreterActionFlashDrive: public VisitorInterpreterAction {
 		std::shared_ptr<IR::Test> current_test,
 		bool ignore_repl
 	):
-		VisitorInterpreterAction(fdc, stack, reporter, ignore_repl), fdc(fdc), current_test(current_test) {}
+		VisitorInterpreterAction(fdc, stack, reporter, current_test, ignore_repl), fdc(fdc) {}
 
 	~VisitorInterpreterActionFlashDrive() {}
 
@@ -20,5 +20,4 @@ struct VisitorInterpreterActionFlashDrive: public VisitorInterpreterAction {
 	bool visit_check(const IR::Check& check) override;
 
 	std::shared_ptr<IR::FlashDrive> fdc;
-	std::shared_ptr<IR::Test> current_test;
 };

@@ -675,6 +675,8 @@ std::shared_ptr<Action> Parser::action() {
 		action = copy();
 	} else if (test_id("screenshot")) {
 		action = screenshot();
+	} else if (test_id("snapshot")) {
+		action = snapshot_action();
 	} else if (LA(1) == Token::category::lbrace) {
 		delim_required = false;
 		action = action_block();
@@ -1033,6 +1035,20 @@ std::shared_ptr<Screenshot> Parser::screenshot() {
 	Token screenshot_token = eat_id("screenshot");
 	auto destination = string();
 	return std::make_shared<Screenshot>(screenshot_token, destination);
+}
+
+std::shared_ptr<Action> Parser::snapshot_action() {
+	Token snapshot_token = eat_id("snapshot");
+	if (test_id("create")) {
+		Token op_token = eat_id("create");
+		return std::make_shared<SnapshotCreate>(snapshot_token, op_token);
+	} else if (test_id("revert")) {
+		Token op_token = eat_id("revert");
+		return std::make_shared<SnapshotRevert>(snapshot_token, op_token);
+	} else {
+		throw ExceptionWithPos(LT(1).begin(),
+			"Error: expected 'create' or 'revert' after 'snapshot', got: " + LT(1).value());
+	}
 }
 
 std::shared_ptr<Block<Action>> Parser::action_block() {

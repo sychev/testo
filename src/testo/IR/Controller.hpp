@@ -2,6 +2,7 @@
 #pragma once
 
 #include "Object.hpp"
+#include "Resume.hpp"
 
 #define TESTO_CURRENT_METADATA_VERSION 3
 
@@ -33,6 +34,13 @@ struct Controller: Object<AST::Controller> {
 
 	static nlohmann::json get_metadata(const fs::path& file, const std::string& key);
 	static void set_metadata(const fs::path& file, const std::string& key, const nlohmann::json& value);
+
+	// Attach resume metadata to an existing snapshot's metadata file (typically <test>_tmp).
+	// Intended to be called immediately after the snapshot is taken so that the persisted
+	// information is in sync with the snapshot contents.
+	void save_resume_info(const std::string& snapshot, const ResumeInfo& info);
+	bool has_resume_info(const std::string& snapshot);
+	ResumeInfo load_resume_info(const std::string& snapshot);
 
 	static nlohmann::json read_metadata_file(const fs::path& file);
 	static void write_metadata_file(const fs::path& file, const nlohmann::json& metadata);

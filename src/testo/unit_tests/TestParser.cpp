@@ -31,3 +31,12 @@ TEST_CASE("parse action macro call") {
 TEST_CASE("parse action mouse click") {
 	TestParseStringifyActions("{ mouse click \"Next\".from_right(0).center_bottom(); }");
 }
+
+TEST_CASE("parse action snapshot create/revert") {
+	TestParseStringifyActions("{ snapshot create; }");
+	TestParseStringifyActions("{ snapshot revert; }");
+
+	// the `snapshot` identifier must be followed by `create` or `revert`
+	REQUIRE_THROWS(Parser(".", "{ snapshot foo; }").action_block());
+	REQUIRE_THROWS(Parser(".", "{ snapshot; }").action_block());
+}

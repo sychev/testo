@@ -508,7 +508,10 @@ void VisitorInterpreter::visit_test(const std::shared_ptr<IR::Test>& test) {
 
 		reporter.prepare_environment();
 
-		restore_parents_controllers_if_needed(test);
+		auto ctx = setup_resume_if_eligible(test);
+		if (!ctx) {
+			restore_parents_controllers_if_needed(test);
+		}
 		create_networks_if_needed(test);
 		install_new_controllers_if_needed(test);
 
@@ -517,7 +520,15 @@ void VisitorInterpreter::visit_test(const std::shared_ptr<IR::Test>& test) {
 			reporter.run_test();
 			StackPusher<VisitorInterpreter> pusher(this, test->stack);
 			current_test = test;
+			resume_context = ctx;
 			visit_command_block(test->ast_node->cmd_block);
+			if (resume_context && resume_context->active) {
+				resume_context.reset();
+				throw std::runtime_error(
+					"resume target was not reached during test rerun: "
+					"the recorded snapshot create position is unreachable in the current test source");
+			}
+			resume_context.reset();
 		}
 		suspend_all_vms(test);
 
@@ -563,11 +574,15 @@ void VisitorInterpreter::visit_command(const std::shared_ptr<AST::Cmd>& cmd) {
 void VisitorInterpreter::visit_regular_command(const IR::RegularCommand& regular_command) {
 	if (auto current_controller = IR::program->get_machine_or_null(regular_command.entity())) {
 		this->current_controller = current_controller;
-		VisitorInterpreterActionMachine(current_controller, stack, reporter, current_test, ignore_repl).visit_action(regular_command.ast_node->action);
+		VisitorInterpreterActionMachine visitor(current_controller, stack, reporter, current_test, ignore_repl);
+		visitor.resume_context = resume_context;
+		visitor.visit_action(regular_command.ast_node->action);
 		this->current_controller = nullptr;
 	} else if (auto current_controller = IR::program->get_flash_drive_or_null(regular_command.entity())) {
 		this->current_controller = current_controller;
-		VisitorInterpreterActionFlashDrive(current_controller, stack, reporter, current_test, ignore_repl).visit_action(regular_command.ast_node->action);
+		VisitorInterpreterActionFlashDrive visitor(current_controller, stack, reporter, current_test, ignore_repl);
+		visitor.resume_context = resume_context;
+		visitor.visit_action(regular_command.ast_node->action);
 		this->current_controller = nullptr;
 	} else {
 		throw std::runtime_error("Should never happen");
@@ -594,4 +609,55 @@ void VisitorInterpreter::stop_all_vms(const std::shared_ptr<IR::Test>& test) {
 			vmc->current_state = "";
 		}
 	}
+}
+
+std::shared_ptr<ResumeContext> VisitorInterpreter::setup_resume_if_eligible(const std::shared_ptr<IR::Test>& test) {
+	TRACE();
+	const std::string snapshot_name = test->name() + "_tmp";
+
+	auto controllers = test->get_all_controllers();
+	if (controllers.empty()) {
+		return nullptr;
+	}
+
+	for (auto ctrl: controllers) {
+		if (!ctrl->is_defined()) return nullptr;
+		if (!ctrl->has_snapshot(snapshot_name, true)) return nullptr;
+		if (!ctrl->has_resume_info(snapshot_name)) return nullptr;
+		auto info = ctrl->load_resume_info(snapshot_name);
+		if (info.test_cksum != test->cksum) return nullptr;
+	}
+
+	auto info = (*controllers.begin())->load_resume_info(snapshot_name);
+
+	for (auto ctrl: controllers) {
+		reporter.restore_snapshot(ctrl, snapshot_name);
+		ctrl->restore_snapshot(snapshot_name);
+		// After restore current_state would point at the temporary snapshot.
+		// If we leave it there, the test's final snapshot created at the end
+		// of a successful rerun would record _tmp as its parent, and a later
+		// delete_snapshot_with_children on _tmp (done by the snapshot-create
+		// implementation when overwriting, or on test pass) would cascade
+		// into the just-created test snapshot. Pin current_state to a real
+		// ancestor so the tree stays consistent.
+		std::string ancestor;
+		for (auto parent: test->parents) {
+			auto parent_ctrls = parent->get_all_controllers();
+			if (parent_ctrls.find(ctrl) != parent_ctrls.end()) {
+				ancestor = parent->name();
+				break;
+			}
+		}
+		if (ancestor.empty()) {
+			ancestor = "_init";
+		}
+		ctrl->current_state = ancestor;
+		coro::CheckPoint();
+	}
+
+	auto ctx = std::make_shared<ResumeContext>();
+	ctx->pos = info.pos;
+	ctx->saved_stack = stack_from_json(info.stack_frames);
+	ctx->active = true;
+	return ctx;
 }

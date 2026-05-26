@@ -6,6 +6,8 @@
 #include "../IR/Controller.hpp"
 #include "../IR/Macro.hpp"
 #include "../IR/Expr.hpp"
+#include "../IR/Resume.hpp"
+#include "../IR/Test.hpp"
 #include "../report/Reporter.hpp"
 
 struct ActionException: ExceptionWithPos {
@@ -40,14 +42,26 @@ struct CycleControlException: std::exception {
 	Token token;
 };
 
+// Shared between all action visitors created for a single test execution.
+// When `active` is true, leaf actions are skipped until the visitor reaches
+// the AST position recorded in `pos` with a matching stack chain; at that point
+// `active` is cleared and normal execution resumes after the recorded action.
+struct ResumeContext {
+	IR::ResumePos pos;
+	std::shared_ptr<StackNode> saved_stack;
+	bool active = true;
+};
+
 struct VisitorInterpreterAction {
 	VisitorInterpreterAction(
 		std::shared_ptr<IR::Controller> controller,
 		std::shared_ptr<StackNode> stack,
 		Reporter& reporter,
+		std::shared_ptr<IR::Test> current_test,
 		bool ignore_repl
 	):
-		current_controller(controller), stack(stack), reporter(reporter), ignore_repl(ignore_repl) {}
+		current_controller(controller), stack(stack), reporter(reporter),
+		current_test(current_test), ignore_repl(ignore_repl) {}
 
 	virtual ~VisitorInterpreterAction() {}
 
@@ -65,6 +79,8 @@ struct VisitorInterpreterAction {
 	void visit_macro_body(const std::shared_ptr<AST::Block<AST::Action>>& macro_body);
 	void visit_if_clause(std::shared_ptr<AST::IfClause> if_clause);
 	void visit_for_clause(std::shared_ptr<AST::ForClause> for_clause);
+	void visit_snapshot_create(const IR::SnapshotCreate& snapshot_create);
+	void visit_snapshot_revert(const IR::SnapshotRevert& snapshot_revert);
 
 	bool visit_expr(std::shared_ptr<AST::Expr> expr);
 	bool visit_binop(std::shared_ptr<AST::BinOp> binop);
@@ -72,8 +88,17 @@ struct VisitorInterpreterAction {
 	bool visit_comparison(const IR::Comparison& comparison);
 	bool visit_defined(const IR::Defined& defined);
 
+	// Returns true if the given leaf action should be skipped because the
+	// visitor is currently fast-forwarding to a recorded resume point. When
+	// the action's position and current stack match the recorded point, the
+	// resume context is cleared and `true` is still returned (the recorded
+	// `snapshot create` is not re-executed).
+	bool should_skip_leaf(const std::shared_ptr<AST::Action>& action);
+
 	std::shared_ptr<IR::Controller> current_controller;
 	std::shared_ptr<StackNode> stack;
 	Reporter& reporter;
+	std::shared_ptr<IR::Test> current_test;
 	bool ignore_repl;
+	std::shared_ptr<ResumeContext> resume_context;
 };

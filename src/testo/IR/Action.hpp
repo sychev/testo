@@ -242,4 +242,12 @@ struct CycleControl: Node<AST::CycleControl> {
 	std::string type() const;
 };
 
+struct SnapshotCreate: Node<AST::SnapshotCreate> {
+	using Node<AST::SnapshotCreate>::Node;
+};
+
+struct SnapshotRevert: Node<AST::SnapshotRevert> {
+	using Node<AST::SnapshotRevert>::Node;
+};
+
 }

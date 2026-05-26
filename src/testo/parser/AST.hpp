@@ -1123,6 +1123,46 @@ struct Screenshot: public Action {
 	std::shared_ptr<String> destination;
 };
 
+struct SnapshotCreate: public Action {
+	SnapshotCreate(Token snapshot_token_, Token op_token_):
+		snapshot_token(std::move(snapshot_token_)), op_token(std::move(op_token_)) {}
+
+	Pos begin() const override {
+		return snapshot_token.begin();
+	}
+
+	Pos end() const override {
+		return op_token.end();
+	}
+
+	std::string to_string() const override {
+		return snapshot_token.value() + " " + op_token.value();
+	}
+
+	Token snapshot_token;
+	Token op_token;
+};
+
+struct SnapshotRevert: public Action {
+	SnapshotRevert(Token snapshot_token_, Token op_token_):
+		snapshot_token(std::move(snapshot_token_)), op_token(std::move(op_token_)) {}
+
+	Pos begin() const override {
+		return snapshot_token.begin();
+	}
+
+	Pos end() const override {
+		return op_token.end();
+	}
+
+	std::string to_string() const override {
+		return snapshot_token.value() + " " + op_token.value();
+	}
+
+	Token snapshot_token;
+	Token op_token;
+};
+
 struct IBlock {
 	virtual ~IBlock() {}
 };

@@ -112,16 +112,53 @@ VisitorInterpreterActionMachine::VisitorInterpreterActionMachine(
 	std::shared_ptr<IR::Test> current_test,
 	bool ignore_repl
 ):
-	VisitorInterpreterAction(vmc, stack, reporter, ignore_repl), vmc(vmc), current_test(current_test)
+	VisitorInterpreterAction(vmc, stack, reporter, current_test, ignore_repl), vmc(vmc)
 {
 
 }
 
 void VisitorInterpreterActionMachine::visit_action(std::shared_ptr<AST::Action> action) {
+	// Strip the wrapper added by parser to track delimiter token.
+	if (auto p = std::dynamic_pointer_cast<AST::ActionWithDelim>(action)) {
+		visit_action(p->action);
+		return;
+	}
+
+	// Control flow constructs are always traversed so the visitor can reach
+	// nested leaves even while fast-forwarding to a resume point.
+	if (auto p = std::dynamic_pointer_cast<AST::Block<AST::Action>>(action)) {
+		visit_action_block(p);
+		coro::CheckPoint();
+		return;
+	}
+	if (auto p = std::dynamic_pointer_cast<AST::IfClause>(action)) {
+		visit_if_clause(p);
+		coro::CheckPoint();
+		return;
+	}
+	if (auto p = std::dynamic_pointer_cast<AST::ForClause>(action)) {
+		visit_for_clause(p);
+		coro::CheckPoint();
+		return;
+	}
+	if (auto p = std::dynamic_pointer_cast<AST::MacroCall<AST::Action>>(action)) {
+		visit_macro_call({p, stack});
+		coro::CheckPoint();
+		return;
+	}
+	if (std::dynamic_pointer_cast<AST::Empty>(action)) {
+		return;
+	}
+
+	// Leaf action: if we are fast-forwarding to a recorded resume point,
+	// skip this node (clearing the resume flag if this is the target).
+	if (should_skip_leaf(action)) {
+		coro::CheckPoint();
+		return;
+	}
+
 	if (auto p = std::dynamic_pointer_cast<AST::Abort>(action)) {
 		visit_abort({p, stack});
-	} else if (auto p = std::dynamic_pointer_cast<AST::ActionWithDelim>(action)) {
-		visit_action(p->action);
 	} else if (auto p = std::dynamic_pointer_cast<AST::Bug>(action)) {
 		visit_bug({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Print>(action)) {
@@ -156,18 +193,12 @@ void VisitorInterpreterActionMachine::visit_action(std::shared_ptr<AST::Action> 
 		visit_copy({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::Screenshot>(action)) {
 		visit_screenshot({p, stack});
-	} else if (auto p = std::dynamic_pointer_cast<AST::MacroCall<AST::Action>>(action)) {
-		visit_macro_call({p, stack});
-	} else if (auto p = std::dynamic_pointer_cast<AST::IfClause>(action)) {
-		visit_if_clause(p);
-	} else if (auto p = std::dynamic_pointer_cast<AST::ForClause>(action)) {
-		visit_for_clause(p);
+	} else if (auto p = std::dynamic_pointer_cast<AST::SnapshotCreate>(action)) {
+		visit_snapshot_create({p, stack});
+	} else if (auto p = std::dynamic_pointer_cast<AST::SnapshotRevert>(action)) {
+		visit_snapshot_revert({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::CycleControl>(action)) {
 		throw CycleControlException(p->token);
-	} else if (auto p = std::dynamic_pointer_cast<AST::Block<AST::Action>>(action)) {
-		visit_action_block(p);
-	} else if (auto p = std::dynamic_pointer_cast<AST::Empty>(action)) {
-		;
 	} else {
 		throw std::runtime_error("Should never happen");
 	}

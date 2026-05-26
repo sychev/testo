@@ -1,8 +1,10 @@
 
 #include <coro/Timer.h>
+#include <coro/CheckPoint.h>
 #include "VisitorInterpreterAction.hpp"
 #include "../Exceptions.hpp"
 #include "../IR/Program.hpp"
+#include "../IR/Test.hpp"
 #include <coro/Finally.h>
 #include "../Logger.hpp"
 
@@ -232,4 +234,68 @@ bool VisitorInterpreterAction::visit_comparison(const IR::Comparison& comparison
 
 bool VisitorInterpreterAction::visit_defined(const IR::Defined& defined) {
 	return defined.is_defined();
+}
+
+void VisitorInterpreterAction::visit_snapshot_create(const IR::SnapshotCreate& snapshot_create) {
+	TRACE();
+	if (!current_test) {
+		throw std::runtime_error("snapshot create called outside a test context");
+	}
+	const std::string snapshot_name = current_test->name() + "_tmp";
+
+	IR::ResumeInfo info;
+	info.test_cksum = current_test->cksum;
+	info.stack_frames = stack_to_json(stack);
+	info.pos = IR::ResumePos::from_pos(snapshot_create.ast_node->begin());
+
+	for (auto controller: current_test->get_all_machines()) {
+		if (controller->has_snapshot(snapshot_name, true)) {
+			controller->delete_snapshot_with_children(snapshot_name);
+		}
+		controller->create_snapshot(snapshot_name, current_test->cksum, true);
+		controller->save_resume_info(snapshot_name, info);
+		controller->current_state = snapshot_name;
+		coro::CheckPoint();
+	}
+	for (auto controller: current_test->get_all_flash_drives()) {
+		if (controller->has_snapshot(snapshot_name, true)) {
+			controller->delete_snapshot_with_children(snapshot_name);
+		}
+		controller->create_snapshot(snapshot_name, current_test->cksum, true);
+		controller->save_resume_info(snapshot_name, info);
+		controller->current_state = snapshot_name;
+		coro::CheckPoint();
+	}
+}
+
+void VisitorInterpreterAction::visit_snapshot_revert(const IR::SnapshotRevert& snapshot_revert) {
+	TRACE();
+	if (!current_test) {
+		throw std::runtime_error("snapshot revert called outside a test context");
+	}
+	const std::string snapshot_name = current_test->name() + "_tmp";
+
+	for (auto controller: current_test->get_all_controllers()) {
+		if (!controller->has_snapshot(snapshot_name, true)) {
+			throw std::runtime_error("snapshot revert: no _tmp snapshot for " +
+				controller->type() + " " + controller->name() +
+				"; snapshot create must have been called first");
+		}
+	}
+	for (auto controller: current_test->get_all_controllers()) {
+		controller->restore_snapshot(snapshot_name);
+		coro::CheckPoint();
+	}
+}
+
+bool VisitorInterpreterAction::should_skip_leaf(const std::shared_ptr<AST::Action>& action) {
+	if (!resume_context || !resume_context->active) {
+		return false;
+	}
+	if (resume_context->pos.matches(action->begin()) &&
+		stacks_equal(stack, resume_context->saved_stack))
+	{
+		resume_context->active = false;
+	}
+	return true;
 }
