@@ -82,6 +82,16 @@ struct VisitorInterpreterAction {
 	void visit_snapshot_create(const IR::SnapshotCreate& snapshot_create);
 	void visit_snapshot_revert(const IR::SnapshotRevert& snapshot_revert);
 
+	// Brings VMs of `test` back to the state recorded in `vm_running` after
+	// a `<test>_tmp` snapshot has been restored. If a machine's id is missing
+	// from `vm_running` (older _tmp metadata format), it is treated as having
+	// been Running - that is the overwhelming common case for mid-test
+	// snapshots. Throws with a diagnostic message if a VM that was expected
+	// to be Running ends up Stopped after restore.
+	static void restore_vm_states_after_tmp(
+		const std::shared_ptr<IR::Test>& test,
+		const std::map<std::string, bool>& vm_running);
+
 	bool visit_expr(std::shared_ptr<AST::Expr> expr);
 	bool visit_binop(std::shared_ptr<AST::BinOp> binop);
 	bool visit_string_expr(const IR::String& string_expr);

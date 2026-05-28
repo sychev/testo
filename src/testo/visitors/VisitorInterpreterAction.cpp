@@ -285,13 +285,43 @@ void VisitorInterpreterAction::visit_snapshot_create(const IR::SnapshotCreate& s
 
 	// Bring previously-running VMs back to Running so the test continues
 	// from the exact state it was in before `snapshot create`.
-	for (auto vmc: current_test->get_all_machines()) {
-		auto it = vm_was_running.find(vmc->vm()->id());
-		if (it != vm_was_running.end() && it->second) {
-			if (vmc->vm()->state() == VmState::Suspended) {
-				vmc->vm()->resume();
-			}
+	restore_vm_states_after_tmp(current_test, vm_was_running);
+}
+
+void VisitorInterpreterAction::restore_vm_states_after_tmp(
+	const std::shared_ptr<IR::Test>& test,
+	const std::map<std::string, bool>& vm_running)
+{
+	for (auto vmc: test->get_all_machines()) {
+		auto it = vm_running.find(vmc->vm()->id());
+		// Treat missing entry as "was running" - this covers _tmp snapshots
+		// created by older code (or by an integrating fork) that did not
+		// record vm_running. A leaf `snapshot create` is almost always called
+		// from a Running VM, so this default matches the common case.
+		bool was_running = (it == vm_running.end()) || it->second;
+		if (!was_running) {
+			continue;
 		}
+		auto state = vmc->vm()->state();
+		if (state == VmState::Running) {
+			continue;
+		}
+		if (state == VmState::Suspended) {
+			vmc->vm()->resume();
+			continue;
+		}
+		// Stopped or Other: rollback put the VM in a state we cannot turn
+		// back into Running without a fresh boot (memory state is lost).
+		// Surface this clearly instead of letting the next leaf action
+		// blow up with a confusing "VM not running" from libvirt.
+		throw std::runtime_error(fmt::format(
+			"After restoring snapshot, VM '{}' is in state '{}' but the "
+			"recorded state at snapshot create time was Running. The "
+			"snapshot most likely did not capture the VM's memory - check "
+			"that `snapshot create` suspends Running VMs before calling "
+			"vm()->make_snapshot().",
+			vmc->name(),
+			state == VmState::Stopped ? "Stopped" : "Other"));
 	}
 }
 
@@ -320,16 +350,7 @@ void VisitorInterpreterAction::visit_snapshot_revert(const IR::SnapshotRevert& s
 		coro::CheckPoint();
 	}
 
-	// After rollback a VM whose memory snapshot was saved comes back Suspended;
-	// resume the ones that were Running when snapshot create was called.
-	for (auto vmc: current_test->get_all_machines()) {
-		auto it = info.vm_running.find(vmc->vm()->id());
-		if (it != info.vm_running.end() && it->second) {
-			if (vmc->vm()->state() == VmState::Suspended) {
-				vmc->vm()->resume();
-			}
-		}
-	}
+	restore_vm_states_after_tmp(current_test, info.vm_running);
 }
 
 bool VisitorInterpreterAction::should_skip_leaf(const std::shared_ptr<AST::Action>& action) {

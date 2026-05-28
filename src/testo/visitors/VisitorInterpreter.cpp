@@ -676,14 +676,5 @@ void VisitorInterpreter::apply_resume_restore(const std::shared_ptr<IR::Test>& t
 		coro::CheckPoint();
 	}
 
-	// QEMU restores VMs that had a memory snapshot to Suspended; we need to
-	// resume those that were Running when snapshot create was called.
-	for (auto vmc: test->get_all_machines()) {
-		auto it = info.vm_running.find(vmc->vm()->id());
-		if (it != info.vm_running.end() && it->second) {
-			if (vmc->vm()->state() == VmState::Suspended) {
-				vmc->vm()->resume();
-			}
-		}
-	}
+	VisitorInterpreterAction::restore_vm_states_after_tmp(test, info.vm_running);
 }
