@@ -3,6 +3,7 @@
 
 #include <nlohmann/json.hpp>
 #include <string>
+#include <map>
 #include <memory>
 #include "../lexer/Pos.hpp"
 #include "../resolver/Stack.hpp"
@@ -29,9 +30,10 @@ struct ResumePos {
 // the interpreter to fast-forward through the test body on rerun until it
 // reaches the recorded `snapshot create` and resume normal execution from there.
 struct ResumeInfo {
-	std::string test_cksum;             // matched against IR::Test::cksum on rerun
-	nlohmann::json stack_frames;        // produced by stack_to_json, innermost first
+	std::string test_cksum;                  // matched against IR::Test::cksum on rerun
+	nlohmann::json stack_frames;             // produced by stack_to_json, innermost first
 	ResumePos pos;
+	std::map<std::string, bool> vm_running;  // VM id -> was the VM running at snapshot time
 
 	nlohmann::json to_json() const;
 	static ResumeInfo from_json(const nlohmann::json& j);

@@ -39,6 +39,7 @@ nlohmann::json ResumeInfo::to_json() const {
 		{"test_cksum", test_cksum},
 		{"stack_frames", stack_frames},
 		{"pos", pos.to_json()},
+		{"vm_running", vm_running},
 	};
 }
 
@@ -47,6 +48,11 @@ ResumeInfo ResumeInfo::from_json(const nlohmann::json& j) {
 	result.test_cksum = j.at("test_cksum").get<std::string>();
 	result.stack_frames = j.at("stack_frames");
 	result.pos = ResumePos::from_json(j.at("pos"));
+	// vm_running was introduced after the initial version of resume metadata;
+	// older _tmp snapshots may not contain it - default to empty.
+	if (j.count("vm_running")) {
+		result.vm_running = j.at("vm_running").get<std::map<std::string, bool>>();
+	}
 	return result;
 }
 

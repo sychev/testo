@@ -508,12 +508,19 @@ void VisitorInterpreter::visit_test(const std::shared_ptr<IR::Test>& test) {
 
 		reporter.prepare_environment();
 
-		auto ctx = setup_resume_if_eligible(test);
+		auto ctx = plan_resume(test);
 		if (!ctx) {
 			restore_parents_controllers_if_needed(test);
 		}
 		create_networks_if_needed(test);
 		install_new_controllers_if_needed(test);
+
+		if (ctx) {
+			// Restore _tmp on top of whatever install_new_controllers left
+			// behind. For VMs new to this test, install_new just restored
+			// _init - apply_resume_restore overwrites that with _tmp.
+			apply_resume_restore(test);
+		}
 
 		resume_parents_vms(test);
 		{
@@ -611,7 +618,7 @@ void VisitorInterpreter::stop_all_vms(const std::shared_ptr<IR::Test>& test) {
 	}
 }
 
-std::shared_ptr<ResumeContext> VisitorInterpreter::setup_resume_if_eligible(const std::shared_ptr<IR::Test>& test) {
+std::shared_ptr<ResumeContext> VisitorInterpreter::plan_resume(const std::shared_ptr<IR::Test>& test) {
 	TRACE();
 	const std::string snapshot_name = test->name() + "_tmp";
 
@@ -628,6 +635,20 @@ std::shared_ptr<ResumeContext> VisitorInterpreter::setup_resume_if_eligible(cons
 		if (info.test_cksum != test->cksum) return nullptr;
 	}
 
+	auto info = (*controllers.begin())->load_resume_info(snapshot_name);
+
+	auto ctx = std::make_shared<ResumeContext>();
+	ctx->pos = info.pos;
+	ctx->saved_stack = stack_from_json(info.stack_frames);
+	ctx->active = true;
+	return ctx;
+}
+
+void VisitorInterpreter::apply_resume_restore(const std::shared_ptr<IR::Test>& test) {
+	TRACE();
+	const std::string snapshot_name = test->name() + "_tmp";
+
+	auto controllers = test->get_all_controllers();
 	auto info = (*controllers.begin())->load_resume_info(snapshot_name);
 
 	for (auto ctrl: controllers) {
@@ -655,9 +676,14 @@ std::shared_ptr<ResumeContext> VisitorInterpreter::setup_resume_if_eligible(cons
 		coro::CheckPoint();
 	}
 
-	auto ctx = std::make_shared<ResumeContext>();
-	ctx->pos = info.pos;
-	ctx->saved_stack = stack_from_json(info.stack_frames);
-	ctx->active = true;
-	return ctx;
+	// QEMU restores VMs that had a memory snapshot to Suspended; we need to
+	// resume those that were Running when snapshot create was called.
+	for (auto vmc: test->get_all_machines()) {
+		auto it = info.vm_running.find(vmc->vm()->id());
+		if (it != info.vm_running.end() && it->second) {
+			if (vmc->vm()->state() == VmState::Suspended) {
+				vmc->vm()->resume();
+			}
+		}
+	}
 }

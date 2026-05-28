@@ -59,11 +59,17 @@ private:
 
 	void stop_all_vms(const std::shared_ptr<IR::Test>& test);
 
-	// If the test has a valid _tmp snapshot on every controller with matching
-	// resume info, restores those snapshots and returns a populated context.
-	// Returns nullptr when not eligible; in that case the caller proceeds
-	// through the normal parent-restore path.
-	std::shared_ptr<ResumeContext> setup_resume_if_eligible(const std::shared_ptr<IR::Test>& test);
+	// Returns a populated context if the test has a valid _tmp snapshot on
+	// every controller with matching cksum and stored resume info. Does not
+	// touch any controller - call `apply_resume_restore` later (after parent
+	// restore / install_new_controllers) to actually restore _tmp on top.
+	std::shared_ptr<ResumeContext> plan_resume(const std::shared_ptr<IR::Test>& test);
+
+	// Restores `<test>_tmp` on every participating controller, pins their
+	// current_state to a real ancestor (so the final test snapshot does not
+	// chain through _tmp), and brings VMs back to Running when they were
+	// running at the moment `snapshot create` was called.
+	void apply_resume_restore(const std::shared_ptr<IR::Test>& test);
 
 	std::shared_ptr<ResumeContext> resume_context;
 };

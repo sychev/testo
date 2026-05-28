@@ -243,10 +243,26 @@ void VisitorInterpreterAction::visit_snapshot_create(const IR::SnapshotCreate& s
 	}
 	const std::string snapshot_name = current_test->name() + "_tmp";
 
+	// QEMU's make_snapshot only persists VM memory when the domain is paused;
+	// snapshotting a running VM yields a disk-only snapshot, and the restore
+	// would leave the VM powered off. Mirror what the framework does at test
+	// boundaries: suspend running VMs, take the snapshot, resume them back.
+	// Also remember which VMs were running so we can bring them up to the
+	// same state on `snapshot revert` or on a resumed rerun.
+	std::map<std::string, bool> vm_was_running;
+	for (auto vmc: current_test->get_all_machines()) {
+		bool running = (vmc->vm()->state() == VmState::Running);
+		vm_was_running[vmc->vm()->id()] = running;
+		if (running) {
+			vmc->vm()->suspend();
+		}
+	}
+
 	IR::ResumeInfo info;
 	info.test_cksum = current_test->cksum;
 	info.stack_frames = stack_to_json(stack);
 	info.pos = IR::ResumePos::from_pos(snapshot_create.ast_node->begin());
+	info.vm_running = vm_was_running;
 
 	for (auto controller: current_test->get_all_machines()) {
 		if (controller->has_snapshot(snapshot_name, true)) {
@@ -266,6 +282,17 @@ void VisitorInterpreterAction::visit_snapshot_create(const IR::SnapshotCreate& s
 		controller->current_state = snapshot_name;
 		coro::CheckPoint();
 	}
+
+	// Bring previously-running VMs back to Running so the test continues
+	// from the exact state it was in before `snapshot create`.
+	for (auto vmc: current_test->get_all_machines()) {
+		auto it = vm_was_running.find(vmc->vm()->id());
+		if (it != vm_was_running.end() && it->second) {
+			if (vmc->vm()->state() == VmState::Suspended) {
+				vmc->vm()->resume();
+			}
+		}
+	}
 }
 
 void VisitorInterpreterAction::visit_snapshot_revert(const IR::SnapshotRevert& snapshot_revert) {
@@ -275,16 +302,33 @@ void VisitorInterpreterAction::visit_snapshot_revert(const IR::SnapshotRevert& s
 	}
 	const std::string snapshot_name = current_test->name() + "_tmp";
 
-	for (auto controller: current_test->get_all_controllers()) {
+	auto controllers = current_test->get_all_controllers();
+	for (auto controller: controllers) {
 		if (!controller->has_snapshot(snapshot_name, true)) {
 			throw std::runtime_error("snapshot revert: no _tmp snapshot for " +
 				controller->type() + " " + controller->name() +
 				"; snapshot create must have been called first");
 		}
 	}
-	for (auto controller: current_test->get_all_controllers()) {
+
+	// resume_info is duplicated across every participating controller, so
+	// reading from any one of them gives the same picture.
+	IR::ResumeInfo info = (*controllers.begin())->load_resume_info(snapshot_name);
+
+	for (auto controller: controllers) {
 		controller->restore_snapshot(snapshot_name);
 		coro::CheckPoint();
+	}
+
+	// After rollback a VM whose memory snapshot was saved comes back Suspended;
+	// resume the ones that were Running when snapshot create was called.
+	for (auto vmc: current_test->get_all_machines()) {
+		auto it = info.vm_running.find(vmc->vm()->id());
+		if (it != info.vm_running.end() && it->second) {
+			if (vmc->vm()->state() == VmState::Suspended) {
+				vmc->vm()->resume();
+			}
+		}
 	}
 }
 
