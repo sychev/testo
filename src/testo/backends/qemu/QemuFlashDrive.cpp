@@ -1,6 +1,6 @@
 
-#include <coro/Timer.h>
-#include <coro/Timeout.h>
+#include <net/Timer.hpp>
+#include <net/Deadline.hpp>
 #include <os/Process.hpp>
 #include <pugixml/pugixml.hpp>
 #include <guestfs/guestfs.hpp>

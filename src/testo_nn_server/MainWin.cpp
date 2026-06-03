@@ -3,10 +3,10 @@
 #include <tchar.h>
 #include <winapi/Functions.hpp>
 
-std::unique_ptr<coro::Application> app;
+static nlohmann::json g_settings;
 
 void StopApp() {
-	app->cancel();
+	net::request_interrupt();
 }
 
 #define SERVICE_NAME _T("Testo NN Server")
@@ -48,8 +48,8 @@ void ServiceMain(int argc, char** argv) {
 	serviceStatus.dwCurrentState = SERVICE_RUNNING;
 	SetServiceStatus(serviceStatusHandle, &serviceStatus);
 	
-	app->run();
-	
+	app_main(g_settings);
+
 	spdlog::info("NN server stop");
 	serviceStatus.dwCurrentState = SERVICE_STOPPED;
 	SetServiceStatus(serviceStatusHandle, &serviceStatus);
@@ -67,9 +67,7 @@ int _tmain(int argc, TCHAR *argv[]) {
 			settings["log_file"] = logs_path;
 		}
 
-		app.reset(new coro::Application([=] {
-			app_main(settings);
-		}));
+		g_settings = settings;
 
 		SERVICE_TABLE_ENTRY ServiceTable[] =
 		{

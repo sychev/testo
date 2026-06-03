@@ -4,8 +4,8 @@
 #include "QemuGuestAdditions.hpp"
 #include "QemuEnvironment.hpp"
 
-#include <coro/Timer.h>
-#include <coro/Timeout.h>
+#include <net/Timer.hpp>
+#include <net/Deadline.hpp>
 
 #include <os/Process.hpp>
 
@@ -1896,8 +1896,8 @@ void QemuVM::suspend() {
 
 void QemuVM::resume() {
 	try {
-		coro::Timeout timeout(10s);
-		coro::Timer timer;
+		net::Deadline timeout(10s);
+		net::Timer timer;
 		while (true) {
 			{
 				auto domain = qemu_connect.domain_lookup_by_name(id());

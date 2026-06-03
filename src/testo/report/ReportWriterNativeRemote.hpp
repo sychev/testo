@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include <coro/StreamSocket.h>
+#include <net/Socket.hpp>
 #include "ReportWriterNative.hpp"
 
 struct ReportWriterNativeRemote: ReportWriterNative {
@@ -21,7 +21,7 @@ struct ReportWriterNativeRemote: ReportWriterNative {
 	virtual void launch_end() override;
 
 private:
-	using Socket = coro::StreamSocket<asio::ip::tcp>;
+	using Socket = net::Socket<asio::ip::tcp>;
 	using Endpoint = asio::ip::tcp::endpoint;
 
 	Socket socket;

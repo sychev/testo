@@ -10,8 +10,10 @@
 
 #include <winapi/Functions.hpp>
 
-#include <coro/Application.h>
-#include <coro/Timer.h>
+#include <net/Timer.hpp>
+#include <net/Socket.hpp>
+#include <net/Acceptor.hpp>
+#include <net/Cancel.hpp>
 
 #include "MessageHandler.hpp"
 #ifdef __HYPERV__
@@ -29,7 +31,7 @@ using namespace std::chrono_literals;
 void remote_handler(HostMessageHandler& message_handler) {
 #ifdef __QEMU__
 	g_qemu_win_channel.reset(new QemuWinChannel);
-	coro::Timer timer;
+	net::Timer timer;
 	while (true) {
 		try {
 			message_handler.run(g_qemu_win_channel);
@@ -40,9 +42,9 @@ void remote_handler(HostMessageHandler& message_handler) {
 	}
 #elif __HYPERV__
 	hyperv::VSocketEndpoint endpoint(service_id);
-	coro::Acceptor<hyperv::VSocketProtocol> acceptor(endpoint);
+	net::Acceptor<hyperv::VSocketProtocol> acceptor(endpoint);
 	while (true) {
-		coro::StreamSocket<hyperv::VSocketProtocol> socket = acceptor.accept();
+		net::Socket<hyperv::VSocketProtocol> socket = acceptor.accept();
 		try {
 			message_handler.run(std::make_shared<HyperVChannel>(std::move(socket)));
 		} catch (const std::exception& error) {
@@ -60,20 +62,18 @@ void app_main() {
 		remote_handler(host_handler);
 	} catch (const std::exception& err) {
 		spdlog::error("app_main std error: {}", err.what());
-	} catch (const coro::CancelError&) {
-		spdlog::error("app_main CancelError");
+	} catch (const net::Interruption&) {
+		spdlog::error("app_main Interruption");
 	} catch (...) {
 		spdlog::error("app_main unknown error");
 	}
 };
 
-coro::Application app(app_main);
-
 void StopApp() {
 #ifdef __QEMU__
 	g_qemu_win_channel->close();
 #endif
-	app.cancel();
+	net::request_interrupt();
 }
 
 #define SERVICE_NAME _T("Testo Guest Additions")
@@ -114,7 +114,7 @@ void ServiceMain(int argc, char** argv) {
 	spdlog::info("App start");
 	serviceStatus.dwCurrentState = SERVICE_RUNNING;
 	SetServiceStatus(serviceStatusHandle, &serviceStatus);
-	app.run();
+	app_main();
 	spdlog::info("App stop");
 	serviceStatus.dwCurrentState = SERVICE_STOPPED;
 	SetServiceStatus(serviceStatusHandle, &serviceStatus);

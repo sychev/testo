@@ -107,9 +107,7 @@ void start(const StartArgs& args) {
 		settings["log_file"] = LOG_FILE_PATH;
 	}
 
-	coro::Application([&] {
-		app_main(settings);
-	}).run();
+	app_main(settings);
 }
 
 void stop() {

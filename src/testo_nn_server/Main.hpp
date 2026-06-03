@@ -8,9 +8,11 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_sinks.h>
 
-#include <coro/Application.h>
-#include <coro/Acceptor.h>
-#include <coro/StreamSocket.h>
+#include <thread>
+
+#include <net/Acceptor.hpp>
+#include <net/Socket.hpp>
+#include <net/Cancel.hpp>
 
 #include <nlohmann/json.hpp>
 #include <ghc/filesystem.hpp>
@@ -20,29 +22,36 @@
 
 namespace fs = ghc::filesystem;
 
+static void serve_connection(net::Socket<asio::ip::tcp> socket) {
+	std::string new_connection;
+	try {
+		new_connection = socket.handle().remote_endpoint().address().to_string() +
+			":" + std::to_string(socket.handle().remote_endpoint().port());
+		spdlog::info(fmt::format("Accepted new connection: {}", new_connection));
+
+		std::shared_ptr<Channel> channel(new Channel(std::move(socket)));
+
+		MessageHandler message_handler(std::move(channel));
+		message_handler.run();
+	} catch (const std::system_error& error) {
+		if (error.code().value() == 2) {
+			spdlog::info(fmt::format("Connection broken: {}", new_connection));
+		}
+	} catch (const std::exception& error) {
+		std::cout << "Error inside connection handler: " << error.what() << std::endl;
+	}
+}
+
 void local_handler(const nlohmann::json& settings) {
 	auto port = settings.value("port", 8156);
-	coro::TcpAcceptor acceptor(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port));
+	net::TcpAcceptor acceptor(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port));
 	spdlog::info(fmt::format("Listening on port {}", port));
-	acceptor.run([](coro::StreamSocket<asio::ip::tcp> socket) {
-		std::string new_connection;
-		try {
-			new_connection = socket.handle().remote_endpoint().address().to_string() +
-				":" + std::to_string(socket.handle().remote_endpoint().port());
-			spdlog::info(fmt::format("Accepted new connection: {}", new_connection));
-
-			std::shared_ptr<Channel> channel(new Channel(std::move(socket)));
-
-			MessageHandler message_handler(std::move(channel));
-			message_handler.run();
-		} catch (const std::system_error& error) {
-			if (error.code().value() == 2) {
-				spdlog::info(fmt::format("Connection broken: {}", new_connection));
-			}
-		} catch (const std::exception& error) {
-			std::cout << "Error inside local acceptor loop: " << error.what() << std::endl;
-		}
-	});
+	// Каждое соединение обслуживается в отдельном потоке (раньше — отдельной
+	// корутиной в CoroPool). Тяжёлый инференс сериализуется мьютексом внутри
+	// MessageHandler, так что фактическое поведение совпадает с прежним.
+	while (true) {
+		std::thread(serve_connection, acceptor.accept()).detach();
+	}
 }
 
 void setup_logs(const nlohmann::json& settings) {
@@ -107,6 +116,8 @@ void app_main(const nlohmann::json& settings) {
 		spdlog::info("Testo framework version: {}", TESTO_VERSION);
 		spdlog::info("GPU mode enabled: {}", use_gpu);
 		local_handler(settings);
+	} catch (const net::Interruption&) {
+		spdlog::info("Shutting down testo nn server");
 	} catch (const std::exception& error) {
 		spdlog::error(error.what());
 	} catch (...) {

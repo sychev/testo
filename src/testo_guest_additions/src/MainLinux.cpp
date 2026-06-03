@@ -10,11 +10,10 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
-#include <coro/Application.h>
-#include <coro/CoroPool.h>
-#include <coro/Timer.h>
-#include <coro/StreamSocket.h>
-#include <coro/Acceptor.h>
+#include <net/Timer.hpp>
+#include <net/Socket.hpp>
+#include <net/Acceptor.hpp>
+#include <net/Cancel.hpp>
 
 #include <clipp.h>
 
@@ -85,7 +84,7 @@ inline std::ostream& operator<<(std::ostream& stream, const cmdline& cmdline) {
 void remote_handler(HostMessageHandler& message_handler) {
 #ifdef __QEMU__
 	std::shared_ptr<Channel> channel(new QemuLinuxChannel);
-	coro::Timer timer;
+	net::Timer timer;
 	while (true) {
 		try {
 			message_handler.run(channel);
@@ -95,9 +94,9 @@ void remote_handler(HostMessageHandler& message_handler) {
 		}
 	}
 #elif __HYPERV__
-	coro::Acceptor<hyperv::VSocketProtocol> acceptor(hyperv::VSocketEndpoint(HYPERV_PORT));
+	net::Acceptor<hyperv::VSocketProtocol> acceptor(hyperv::VSocketEndpoint(HYPERV_PORT));
 	while (true) {
-		coro::StreamSocket<hyperv::VSocketProtocol> socket = acceptor.accept();
+		net::Socket<hyperv::VSocketProtocol> socket = acceptor.accept();
 		try {
 			message_handler.run(std::make_shared<HyperVChannel>(std::move(socket)));
 		} catch (const std::exception& error) {
@@ -110,7 +109,7 @@ void remote_handler(HostMessageHandler& message_handler) {
 }
 
 struct LocalChannel: Channel {
-	using Socket = coro::StreamSocket<asio::local::stream_protocol>;
+	using Socket = net::Socket<asio::local::stream_protocol>;
 
 	LocalChannel(Socket socket_): socket(std::move(socket_)) {}
 	~LocalChannel() = default;
@@ -131,9 +130,9 @@ private:
 };
 
 void local_handler(CLIMessageHandler& message_handler) {
-	coro::Acceptor<asio::local::stream_protocol> acceptor("/var/run/testo-guest-additions.sock");
+	net::Acceptor<asio::local::stream_protocol> acceptor("/var/run/testo-guest-additions.sock");
 	while (true) {
-		coro::StreamSocket<asio::local::stream_protocol> socket = acceptor.accept();
+		net::Socket<asio::local::stream_protocol> socket = acceptor.accept();
 		try {
 			message_handler.run(std::make_shared<LocalChannel>(std::move(socket)));
 		} catch (const std::exception& error) {
@@ -144,7 +143,7 @@ void local_handler(CLIMessageHandler& message_handler) {
 
 std::thread run_async(std::function<void()> fn_) {
 	return std::thread([fn = std::move(fn_)] {
-		coro::Application(fn).run();
+		fn();
 	});
 }
 
@@ -165,8 +164,8 @@ void app_main() {
 		run_handlers();
 	} catch (const std::exception& err) {
 		spdlog::error("app_main std error: {}", err.what());
-	} catch (const coro::CancelError&) {
-		spdlog::error("app_main CancelError");
+	} catch (const net::Interruption&) {
+		spdlog::error("app_main Interruption");
 	} catch (...) {
 		spdlog::error("app_main unknown error");
 	}

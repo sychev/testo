@@ -1,5 +1,5 @@
 
-#include <coro/Timeout.h>
+#include <net/Deadline.hpp>
 #include "GuestAdditions.hpp"
 #include <os/File.hpp>
 #include "base64.hpp"
@@ -13,7 +13,7 @@ bool GuestAdditions::is_avaliable(std::chrono::milliseconds time_to_wait) {
 			{"method", "check_avaliable"}
 		};
 
-		coro::Timeout timeout(time_to_wait);
+		net::Deadline deadline(time_to_wait);
 
 		send(std::move(request));
 
@@ -29,7 +29,7 @@ std::string GuestAdditions::get_tmp_dir() {
 		{"method", "get_tmp_dir"}
 	};
 
-	coro::Timeout timeout(3s);
+	net::Deadline deadline(3s);
 
 	send(std::move(request));
 

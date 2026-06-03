@@ -1,12 +1,10 @@
 
 #include "QemuWinChannel.hpp"
-#include <coro/IoService.h>
 #include <winapi/Functions.hpp>
 #include <stdexcept>
 #include "QemuWinChannelExtra.hpp"
 
-QemuWinChannel::QemuWinChannel():
-	stream(asio::windows::stream_handle(coro::IoService::current()->_impl))
+QemuWinChannel::QemuWinChannel()
 {
 	std::string device_path = GetVirtioDevicePath();
 	HANDLE handle = CreateFile(winapi::utf8_to_utf16(device_path).c_str(),

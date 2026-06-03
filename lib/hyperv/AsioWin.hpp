@@ -1,8 +1,8 @@
 
 #pragma once
 
-#include <coro/Acceptor.h>
-#include <coro/StreamSocket.h>
+#include <net/Acceptor.hpp>
+#include <net/Socket.hpp>
 #include <ws2def.h>
 #include <hvsocket.h>
 

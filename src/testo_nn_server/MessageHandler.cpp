@@ -1,5 +1,6 @@
 
 #include <spdlog/spdlog.h>
+#include <mutex>
 
 #include "MessageHandler.hpp"
 #include "testo_nn_server_protocol/Messages.hpp"
@@ -26,11 +27,17 @@ std::string duration_to_str(Duration duration) {
 	return result;
 }
 
+// Соединения теперь обслуживаются в отдельных потоках, поэтому фактическую
+// обработку запроса (в т.ч. инференс нейросетей и JS) сериализуем — это
+// воспроизводит прежнее однопоточное кооперативное поведение сервера.
+static std::mutex handle_request_mutex;
+
 void MessageHandler::run() {
 	nlohmann::json request, response;
 	while (true) {
 		request = channel->recv();
 		try {
+			std::lock_guard<std::mutex> lock(handle_request_mutex);
 			response = handle_request(request);
 		} catch (const std::system_error& error) {
 			throw;

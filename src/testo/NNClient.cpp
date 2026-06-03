@@ -4,7 +4,7 @@
 #include "Exceptions.hpp"
 #include "Utils.hpp"
 
-#include <coro/Timer.h>
+#include <net/Timer.hpp>
 #include <iostream>
 
 using namespace std::chrono_literals;
@@ -86,7 +86,7 @@ void NNClient::establish_connection_wrapper(const std::function<void()>& fn) {
 			std::cerr << error.what() << std::endl;
 			if (i < (establish_connection_tries - 1)) {
 				std::cerr << "Failed to connect to the server, reconnecting ...\n";
-				coro::Timer timer;
+				net::Timer timer;
 				timer.waitFor(2s);
 			}
 		}

@@ -1,6 +1,5 @@
 
-#include <coro/Application.h>
-#include <coro/StreamSocket.h>
+#include <net/Socket.hpp>
 #include <clipp.h>
 #include <iostream>
 #include <testo_guest_additions_protocol/GuestAdditions.hpp>
@@ -25,7 +24,7 @@ private:
 		}
 	}
 
-	coro::StreamSocket<asio::local::stream_protocol> socket;
+	net::Socket<asio::local::stream_protocol> socket;
 };
 #else
 struct GA: CLIGuestAdditions {
@@ -164,14 +163,12 @@ int do_main(int argc, char** argv) {
 int main(int argc, char** argv) {
 	int result = 0;
 
-	coro::Application([&]{
-		try {
-			result = do_main(argc, argv);
-		} catch (const std::exception& error) {
-			std::cerr << error.what() << std::endl;
-			result = 1;
-		}
-	}).run();
+	try {
+		result = do_main(argc, argv);
+	} catch (const std::exception& error) {
+		std::cerr << error.what() << std::endl;
+		result = 1;
+	}
 
 	return result;
 }

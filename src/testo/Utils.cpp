@@ -1,6 +1,6 @@
 
-#include <coro/StreamSocket.h>
-#include <coro/CheckPoint.h>
+#include <net/Socket.hpp>
+#include <net/CheckPoint.hpp>
 #include "Utils.hpp"
 #include <algorithm>
 #include <fstream>
@@ -41,7 +41,7 @@ void fs_copy_file(const fs::path& from, const fs::path& to) {
 
 	while ((size = source.read(buf, sizeof(buf))) > 0) {
 		dest.write(buf, size);
-		coro::CheckPoint();
+		net::check_point();
 	}
 }
 

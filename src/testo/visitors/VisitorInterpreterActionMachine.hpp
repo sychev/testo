@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include <coro/Timer.h>
+#include <net/Timer.hpp>
 #include "VisitorInterpreterAction.hpp"
 
 struct VisitorInterpreterActionMachine: public VisitorInterpreterAction {
@@ -69,7 +69,7 @@ struct VisitorInterpreterActionMachine: public VisitorInterpreterAction {
 
 	std::shared_ptr<IR::Machine> vmc;
 	std::shared_ptr<IR::Test> current_test;
-	coro::Timer timer;
+	net::Timer timer;
 
 private:
 	template <typename Func>

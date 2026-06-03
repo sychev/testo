@@ -2,7 +2,7 @@
 #pragma once
 
 #include "Channel.hpp"
-#include <coro/Stream.h>
+#include <net/Stream.hpp>
 
 struct QemuWinChannel: Channel {
 	QemuWinChannel();
@@ -17,5 +17,5 @@ struct QemuWinChannel: Channel {
 	void close();
 
 	std::vector<uint8_t> info_buf;
-	coro::Stream<asio::windows::stream_handle> stream;
+	net::Stream<asio::windows::stream_handle> stream;
 };

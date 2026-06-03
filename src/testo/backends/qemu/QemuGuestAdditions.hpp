@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include <coro/StreamSocket.h>
+#include <net/Socket.hpp>
 #include <testo_guest_additions_protocol/GuestAdditions.hpp>
 #include <qemu/Domain.hpp>
 
@@ -12,7 +12,7 @@ private:
 	virtual void send_raw(const uint8_t* data, size_t size) override;
 	virtual void recv_raw(uint8_t* data, size_t size) override;
 
-	using Socket = coro::StreamSocket<asio::local::stream_protocol>;
+	using Socket = net::Socket<asio::local::stream_protocol>;
 	using Endpoint = asio::local::stream_protocol::endpoint;
 
 	Socket socket;

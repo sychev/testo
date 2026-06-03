@@ -1,8 +1,7 @@
 
-#include <coro/Application.h>
-#include <coro/CoroPool.h>
-#include <coro/SignalSet.h>
-#include <coro/Finally.h>
+#include <net/SignalGuard.hpp>
+#include <net/Finally.hpp>
+#include <net/Cancel.hpp>
 
 #ifdef WIN32
 #include "../backends/hyperv/HypervEnvironment.hpp"
@@ -31,8 +30,6 @@
 using namespace clipp;
 
 std::atomic<bool> REPL_mode_is_active(false);
-
-struct Interruption {};
 
 enum class mode {
 	run,
@@ -217,21 +214,16 @@ int do_main(int argc, char** argv) {
 	TRACE();
 	check_privileges();
 	init_env(hypervisor);
-	coro::Finally cleanup([&] {
+	net::Finally cleanup([&] {
 		env.reset();
 	});
 
-	coro::CoroPool pool;
-	pool.exec([&] {
-		while (true) {
-			coro::SignalSet set({SIGINT, SIGTERM});
-			int signal = set.wait();
-			if ((signal == SIGINT) && REPL_mode_is_active) {
-				REPL_mode_is_active = false;
-				continue;
-			}
-			throw Interruption();
+	net::SignalGuard signal_guard({SIGINT, SIGTERM}, [](int signal) {
+		if ((signal == SIGINT) && REPL_mode_is_active) {
+			REPL_mode_is_active = false;
+			return;
 		}
+		net::request_interrupt();
 	});
 
 	if (selected_mode == mode::clean) {
@@ -247,20 +239,18 @@ int do_main(int argc, char** argv) {
 
 int main(int argc, char** argv) {
 	int result = 0;
-	coro::Application([&]{
-		try {
-			result = do_main(argc, argv);
-		} catch (const TestFailedException& error) {
-			std::cout << error << std::endl;
-			result = 1;
-		}  catch (const std::exception& error) {
-			std::cerr << error << std::endl;
-			result = 2;
-		} catch (const Interruption&) {
-			std::cerr << "Interrupted by user" << std::endl;
-			result = 3;
-		}
-	}).run();
+	try {
+		result = do_main(argc, argv);
+	} catch (const TestFailedException& error) {
+		std::cout << error << std::endl;
+		result = 1;
+	} catch (const net::Interruption&) {
+		std::cerr << "Interrupted by user" << std::endl;
+		result = 3;
+	} catch (const std::exception& error) {
+		std::cerr << error << std::endl;
+		result = 2;
+	}
 
 	return result;
 }

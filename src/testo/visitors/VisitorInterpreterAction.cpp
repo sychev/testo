@@ -1,9 +1,9 @@
 
-#include <coro/Timer.h>
+#include <net/Timer.hpp>
 #include "VisitorInterpreterAction.hpp"
 #include "../Exceptions.hpp"
 #include "../IR/Program.hpp"
-#include <coro/Finally.h>
+#include <net/Finally.hpp>
 #include "../Logger.hpp"
 
 extern std::atomic<bool> REPL_mode_is_active;
@@ -105,7 +105,7 @@ void VisitorInterpreterAction::visit_bug(const IR::Bug& bug) {
 void VisitorInterpreterAction::visit_sleep(const IR::Sleep& sleep) {
 	TRACE();
 	reporter.sleep(current_controller, sleep);
-	coro::Timer timer;
+	net::Timer timer;
 	timer.waitFor(sleep.timeout().value());
 }
 

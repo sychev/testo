@@ -1,6 +1,6 @@
 
-#include <coro/CheckPoint.h>
-#include <coro/Timeout.h>
+#include <net/CheckPoint.hpp>
+#include <net/Deadline.hpp>
 #include "VisitorInterpreterActionMachine.hpp"
 #include "../NNClient.hpp"
 #include "../Exceptions.hpp"
@@ -172,7 +172,7 @@ void VisitorInterpreterActionMachine::visit_action(std::shared_ptr<AST::Action> 
 		throw std::runtime_error("Should never happen");
 	}
 
-	coro::CheckPoint();
+	net::check_point();
 }
 
 void VisitorInterpreterActionMachine::visit_copy(const IR::Copy& copy) {
@@ -180,7 +180,7 @@ void VisitorInterpreterActionMachine::visit_copy(const IR::Copy& copy) {
 	try {
 		reporter.copy(current_controller, copy);
 
-		coro::Timeout timeout(copy.timeout().value());
+		net::Deadline timeout(copy.timeout().value());
 
 		if (vmc->vm()->state() != VmState::Running) {
 			throw std::runtime_error(fmt::format("virtual machine is not running"));
@@ -1059,7 +1059,7 @@ void VisitorInterpreterActionMachine::visit_exec(const IR::Exec& exec) {
 
 		command += " " + guest_script_file.generic_string();
 
-		coro::Timeout timeout(exec.timeout().value());
+		net::Deadline timeout(exec.timeout().value());
 
 		nlohmann::json result = ga->execute(command, *vmc->get_vars(), [&](const std::string& output) {
 			reporter.exec_command_output(output);
@@ -1128,7 +1128,7 @@ bool VisitorInterpreterActionMachine::screenshot_loop(Func&& func, std::chrono::
 		if (interval > end - start) {
 			timer.waitFor(interval - (end - start));
 		} else {
-			coro::CheckPoint();
+			net::check_point();
 		}
 	} while (std::chrono::steady_clock::now() < deadline);
 

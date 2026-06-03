@@ -9,9 +9,9 @@
 #include "Messages.hpp"
 #include <nlohmann/json.hpp>
 
-#include <coro/StreamSocket.h>
+#include <net/Socket.hpp>
 
-using Socket = coro::StreamSocket<asio::ip::tcp>;
+using Socket = net::Socket<asio::ip::tcp>;
 using Endpoint = asio::ip::tcp::endpoint;
 
 struct Channel {
