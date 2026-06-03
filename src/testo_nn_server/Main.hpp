@@ -47,8 +47,10 @@ void local_handler(const nlohmann::json& settings) {
 	net::TcpAcceptor acceptor(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port));
 	spdlog::info(fmt::format("Listening on port {}", port));
 	// Каждое соединение обслуживается в отдельном потоке (раньше — отдельной
-	// корутиной в CoroPool). Тяжёлый инференс сериализуется мьютексом внутри
-	// MessageHandler, так что фактическое поведение совпадает с прежним.
+	// корутиной в едином io_context). Состояние нейросетей и JS — thread_local,
+	// сессии Ort общие и потокобезопасные, поэтому соединения обрабатываются
+	// по-настоящему параллельно; число одновременных инференсов ограничено
+	// семафором по количеству ядер (см. nn/OnnxRuntime.cpp).
 	while (true) {
 		std::thread(serve_connection, acceptor.accept()).detach();
 	}

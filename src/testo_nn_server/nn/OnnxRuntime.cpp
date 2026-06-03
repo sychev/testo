@@ -9,12 +9,32 @@
 #include <ghc/filesystem.hpp>
 namespace fs = ghc::filesystem;
 
+#include <map>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <semaphore>
+#include <algorithm>
+
 namespace nn {
 namespace onnx {
 
 std::unique_ptr<Ort::Env> env;
 bool use_cpu = false;
 size_t gpu_id = 0;
+
+// Ограничитель числа ОДНОВРЕМЕННЫХ инференсов. Модели сконфигурированы как
+// однопоточные (IntraOp/InterOp = 1), поэтому параллельные Run масштабируются
+// по ядрам; семафор не даёт уйти в oversubscription при сотнях соединений.
+static std::counting_semaphore<>& inference_slots() {
+	static std::counting_semaphore<> slots(std::max(1u, std::thread::hardware_concurrency()));
+	return slots;
+}
+
+struct InferenceSlot {
+	InferenceSlot() { inference_slots().acquire(); }
+	~InferenceSlot() { inference_slots().release(); }
+};
 
 Runtime::Runtime(
 #ifdef USE_CUDA
@@ -58,10 +78,7 @@ fs::path GetModelDir() {
 }
 #endif
 
-Model::Model(const char* name) {
-	if (!env) {
-		throw std::runtime_error("Init onnx runtime first!");
-	}
+static std::unique_ptr<Ort::Session> create_session(const char* name) {
 	Ort::SessionOptions session_options;
 	session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 	session_options.SetIntraOpNumThreads(1);
@@ -73,13 +90,35 @@ Model::Model(const char* name) {
 	}
 #endif
 	fs::path model_path = GetModelDir() / (std::string(name) + ".onnx");
-	session = std::make_unique<Ort::Session>(*env,
+	return std::make_unique<Ort::Session>(*env,
 #ifdef WIN32
 		model_path.wstring().c_str(),
 #else
 		model_path.string().c_str(),
 #endif
 		session_options);
+}
+
+// Реестр общих (на весь процесс) сессий: каждая модель грузится с диска один
+// раз, а её Ort::Session переиспользуется всеми потоками. Это держит память
+// постоянной независимо от числа клиентов.
+static Ort::Session& shared_session(const char* name) {
+	static std::mutex mutex;
+	static std::map<std::string, std::unique_ptr<Ort::Session>> sessions;
+
+	std::lock_guard<std::mutex> lock(mutex);
+	auto it = sessions.find(name);
+	if (it == sessions.end()) {
+		it = sessions.emplace(name, create_session(name)).first;
+	}
+	return *it->second;
+}
+
+Model::Model(const char* name) {
+	if (!env) {
+		throw std::runtime_error("Init onnx runtime first!");
+	}
+	session = &shared_session(name);
 }
 
 void Model::run(std::initializer_list<Value*> in, std::initializer_list<Value*> out) {
@@ -97,6 +136,10 @@ void Model::run(std::initializer_list<Value*> in, std::initializer_list<Value*> 
 		out_tensors.push_back(x->tensor());
 	}
 
+	// Сам инференс — единственная по-настоящему тяжёлая CPU-секция; ограничиваем
+	// его параллелизм семафором (без I/O внутри, так что get_ref_image-колбэки
+	// никого не блокируют).
+	InferenceSlot slot;
 	session->Run(Ort::RunOptions{nullptr},
 		in_names.data(), in_tensors.data(), in.size(),
 		out_names.data(), out_tensors.data(), out.size());

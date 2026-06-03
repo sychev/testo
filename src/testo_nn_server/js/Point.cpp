@@ -2,6 +2,7 @@
 #include "Point.hpp"
 #include "FunctionsAdapters.hpp"
 #include <iostream>
+#include <mutex>
 
 namespace js {
 
@@ -89,11 +90,18 @@ static const JSCFunctionListEntry proto_funcs[] = {
 };
 
 void Point::register_class(ContextRef ctx) {
-	if (!class_id) {
+	// class_id аллоцируется один раз на процесс...
+	static std::once_flag id_once;
+	std::call_once(id_once, [] {
 		JS_NewClassID(&class_id);
 		class_def.class_name = "Point";
 		class_def.finalizer = finalizer;
-		JS_NewClass(JS_GetRuntime(ctx.handle), class_id, &class_def);
+	});
+
+	// ...а класс регистрируется в каждом рантайме (по одному на поток).
+	JSRuntime* rt = JS_GetRuntime(ctx.handle);
+	if (!JS_IsRegisteredClass(rt, class_id)) {
+		JS_NewClass(rt, class_id, &class_def);
 	}
 
 	Value proto = ctx.new_object();

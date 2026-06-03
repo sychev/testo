@@ -4,6 +4,7 @@
 #include "Context.hpp"
 #include "../nn/TextTensor.hpp"
 #include "../nn/ImgTensor.hpp"
+#include <mutex>
 
 namespace js {
 
@@ -21,11 +22,19 @@ struct Tensor: Value {
 	using Opaque = NNTensor;
 
 	static void register_class(ContextRef ctx, const char* name, const std::vector<JSCFunctionListEntry>& proto_funcs) {
-		if (!class_id) {
+		// class_id — глобальный идентификатор, аллоцируется один раз на процесс.
+		static std::once_flag id_once;
+		std::call_once(id_once, [&] {
 			JS_NewClassID(&class_id);
 			class_def.class_name = name;
 			class_def.finalizer = finalizer<Tensor>;
-			JS_NewClass(JS_GetRuntime(ctx.handle), class_id, &class_def);
+		});
+
+		// А вот сам класс должен быть зарегистрирован в КАЖДОМ рантайме
+		// (у нас по одному JSRuntime на поток).
+		JSRuntime* rt = JS_GetRuntime(ctx.handle);
+		if (!JS_IsRegisteredClass(rt, class_id)) {
+			JS_NewClass(rt, class_id, &class_def);
 		}
 
 		Value proto = ctx.new_object();

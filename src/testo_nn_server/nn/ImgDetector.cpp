@@ -6,7 +6,7 @@
 namespace nn {
 
 ImgDetector& ImgDetector::instance() {
-	static ImgDetector instance;
+	thread_local ImgDetector instance;
 	return instance;
 }
 

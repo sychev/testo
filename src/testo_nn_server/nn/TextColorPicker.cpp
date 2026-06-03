@@ -22,7 +22,7 @@ std::vector<std::string> colors = {
 namespace nn {
 
 TextColorPicker& TextColorPicker::instance() {
-	static TextColorPicker instance;
+	thread_local TextColorPicker instance;
 	return instance;
 }
 

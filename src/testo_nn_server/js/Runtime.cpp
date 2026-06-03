@@ -11,7 +11,7 @@ RuntimeRef::RuntimeRef(::JSRuntime* handle): handle(handle) {
 }
 
 Runtime& Runtime::instance() {
-	static Runtime instance;
+	thread_local Runtime instance;
 	return instance;
 }
 

@@ -106,7 +106,7 @@ const std::vector<std::u32string> TextRecognizer::symbols = {
 };
 
 TextRecognizer& TextRecognizer::instance() {
-	static TextRecognizer instance;
+	thread_local TextRecognizer instance;
 	return instance;
 }
 
@@ -179,7 +179,9 @@ void TextRecognizer::run_nn(const stb::Image<stb::RGB>* image, TextLine& textlin
 	}
 }
 
-static std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+// wstring_convert хранит мутабельное внутреннее состояние, поэтому он должен
+// быть свой на каждый поток (общий экземпляр давал бы гонку).
+static thread_local std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
 
 std::vector<TextLine> TextRecognizer::run_postprocessing(const TextLine& textline, const std::string& _query) {
 	const TextRecognizerCache& cache = textline.text_recognizer_cache;

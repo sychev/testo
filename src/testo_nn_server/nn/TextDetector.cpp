@@ -26,7 +26,7 @@ static inline int nearest_n_times_div_by_2(int value, size_t n) {
 }
 
 TextDetector& TextDetector::instance() {
-	static TextDetector instance;
+	thread_local TextDetector instance;
 	return instance;
 }
 

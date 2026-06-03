@@ -89,7 +89,9 @@ struct Model {
 	void run(std::initializer_list<Value*> in, std::initializer_list<Value*> out);
 
 private:
-	std::unique_ptr<Ort::Session> session;
+	// Сессия шарится между всеми потоками (Ort::Session::Run потокобезопасен),
+	// поэтому здесь — невладеющий указатель на общий экземпляр из реестра.
+	Ort::Session* session = nullptr;
 };
 
 }

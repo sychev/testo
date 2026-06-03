@@ -6,7 +6,8 @@
 
 namespace nn {
 
-static std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
+// мутабельное состояние конвертера → свой экземпляр на поток
+static thread_local std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> conv;
 
 int TextRecognizerCache::match(size_t x, const std::u32string& query) const {
 	size_t y = 0;
