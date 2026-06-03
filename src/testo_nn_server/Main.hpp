@@ -9,6 +9,10 @@
 #include <spdlog/sinks/stdout_sinks.h>
 
 #include <thread>
+#include <list>
+#include <memory>
+#include <mutex>
+#include <atomic>
 
 #include <net/Acceptor.hpp>
 #include <net/Socket.hpp>
@@ -33,6 +37,8 @@ static void serve_connection(net::Socket<asio::ip::tcp> socket) {
 
 		MessageHandler message_handler(std::move(channel));
 		message_handler.run();
+	} catch (const net::Interruption&) {
+		// сервер останавливается — спокойно завершаем обработчик соединения
 	} catch (const std::system_error& error) {
 		if (error.code().value() == 2) {
 			spdlog::info(fmt::format("Connection broken: {}", new_connection));
@@ -41,6 +47,65 @@ static void serve_connection(net::Socket<asio::ip::tcp> socket) {
 		std::cout << "Error inside connection handler: " << error.what() << std::endl;
 	}
 }
+
+/*!
+	@brief Пул потоков-обработчиков соединений с корректным завершением
+
+	Раньше потоки были detached, и при остановке сервера (app_main возвращается,
+	env/сессии разрушаются) они могли ещё работать — гонка use-after-free.
+	Теперь потоки отслеживаются: завершившиеся периодически join-ятся (reap),
+	а при остановке мы дожидаемся всех. Сами потоки выходят, как только видят
+	запрос отмены (net::request_interrupt) в своём блокирующем вводе/выводе.
+*/
+class ConnectionPool {
+public:
+	~ConnectionPool() {
+		join_all();
+	}
+
+	void spawn(net::Socket<asio::ip::tcp> socket) {
+		std::lock_guard<std::mutex> lock(mutex);
+		reap_finished();
+		auto connection = std::make_unique<Connection>();
+		Connection* raw = connection.get();
+		raw->thread = std::thread([raw, sock = std::move(socket)]() mutable {
+			serve_connection(std::move(sock));
+			raw->done.store(true, std::memory_order_release);
+		});
+		connections.push_back(std::move(connection));
+	}
+
+	void join_all() {
+		std::lock_guard<std::mutex> lock(mutex);
+		for (auto& connection: connections) {
+			if (connection->thread.joinable()) {
+				connection->thread.join();
+			}
+		}
+		connections.clear();
+	}
+
+private:
+	struct Connection {
+		std::atomic<bool> done{false};
+		std::thread thread;
+	};
+
+	// Join-им и удаляем уже завершившиеся соединения (вызывается под mutex).
+	void reap_finished() {
+		for (auto it = connections.begin(); it != connections.end(); ) {
+			if ((*it)->done.load(std::memory_order_acquire)) {
+				(*it)->thread.join();
+				it = connections.erase(it);
+			} else {
+				++it;
+			}
+		}
+	}
+
+	std::mutex mutex;
+	std::list<std::unique_ptr<Connection>> connections;
+};
 
 void local_handler(const nlohmann::json& settings) {
 	auto port = settings.value("port", 8156);
@@ -51,9 +116,17 @@ void local_handler(const nlohmann::json& settings) {
 	// сессии Ort общие и потокобезопасные, поэтому соединения обрабатываются
 	// по-настоящему параллельно; число одновременных инференсов ограничено
 	// семафором по количеству ядер (см. nn/OnnxRuntime.cpp).
-	while (true) {
-		std::thread(serve_connection, acceptor.accept()).detach();
+	ConnectionPool pool;
+	try {
+		while (true) {
+			pool.spawn(acceptor.accept());
+		}
+	} catch (const net::Interruption&) {
+		spdlog::info("Shutting down: waiting for active connections to finish");
 	}
+	// Все активные потоки тоже видят запрос отмены и скоро выйдут; дожидаемся их
+	// до возврата, чтобы env/сессии разрушались уже после остановки потоков.
+	pool.join_all();
 }
 
 void setup_logs(const nlohmann::json& settings) {
