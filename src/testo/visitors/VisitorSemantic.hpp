@@ -34,6 +34,7 @@ struct VisitorSemantic {
 	void visit_test(std::shared_ptr<IR::Test> test);
 	void visit_command_block(std::shared_ptr<AST::Block<AST::Cmd>> block);
 	void visit_command(std::shared_ptr<AST::Cmd> cmd);
+	void visit_parallel_block(std::shared_ptr<AST::ParallelBlock> parallel);
 	void visit_regular_command(const IR::RegularCommand& regular_cmd);
 	void visit_action_block(std::shared_ptr<AST::Block<AST::Action>> action_block);
 	void visit_action(std::shared_ptr<AST::Action> action);

@@ -132,6 +132,7 @@ private:
 	Token network();
 	Token param();
 	Token macro();
+	Token parallel_();
 	Token if_();
 	Token else_();
 	Token IN_();

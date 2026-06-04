@@ -173,6 +173,7 @@ bool Parser::test_test() const {
 
 bool Parser::test_command(size_t index) const {
 	return (LA(index) == Token::category::id ||
+		LA(index) == Token::category::parallel ||
 		test_string(index));
 }
 
@@ -580,13 +581,22 @@ std::shared_ptr<AST::Controller> Parser::controller() {
 }
 
 std::shared_ptr<Cmd> Parser::command() {
-	if (test_macro_call()) {
+	if (LA(1) == Token::category::parallel) {
+		return parallel_block();
+	} else if (test_macro_call()) {
 		return macro_call<AST::Cmd>();
 	} else {
 		auto entity = id();
 		std::shared_ptr<Action> act = action();
 		return std::make_shared<AST::RegularCmd>(entity, act);
 	}
+}
+
+std::shared_ptr<AST::ParallelBlock> Parser::parallel_block() {
+	Token parallel = eat(Token::category::parallel);
+	newline_list();
+	auto block = command_block();
+	return std::make_shared<AST::ParallelBlock>(parallel, block);
 }
 
 std::shared_ptr<Block<Cmd>> Parser::command_block() {

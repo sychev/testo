@@ -204,6 +204,8 @@ Token Lexer::id() {
 		return param();
 	} else if (value == "macro") {
 		return macro();
+	} else if (value == "parallel") {
+		return parallel_();
 	} else if (value == "if") {
 		return if_();
 	} else if (value == "else") {
@@ -295,6 +297,13 @@ Token Lexer::macro() {
 	std::string value("macro");
 	advance(value.length());
 	return Token(Token::category::macro, value, tmp_pos, previous_pos);
+}
+
+Token Lexer::parallel_() {
+	Pos tmp_pos = current_pos;
+	std::string value("parallel");
+	advance(value.length());
+	return Token(Token::category::parallel, value, tmp_pos, previous_pos);
 }
 
 Token Lexer::if_() {

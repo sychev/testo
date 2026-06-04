@@ -17,6 +17,7 @@ struct Token {
 		network,
 		param,
 		macro,
+		parallel,
 		if_,
 		else_,
 		IN_,
@@ -121,6 +122,8 @@ struct Token {
 			return "PARAM";
 		case category::macro:
 			return "MACRO";
+		case category::parallel:
+			return "PARALLEL";
 		case category::if_:
 			return "IF";
 		case category::else_:

@@ -1,0 +1,23 @@
+# A small, self-contained example of the `parallel` block.
+#
+# The same configuration is applied to several machines at the same time.
+# Replace the machine declarations and the `configure` macro with your real
+# setup; the structure stays the same.
+
+macro configure(vmname) {
+	"${vmname}" {
+		start
+		type "echo '${vmname} setup started'"; press Enter
+		type "configure.sh"; press Enter
+		wait "DONE" timeout 10m
+	}
+}
+
+test parallel_setup {
+	parallel {
+		configure("vm_server1")
+		configure("vm_server2")
+		configure("vm_client1")
+		configure("vm_client2")
+	}
+}

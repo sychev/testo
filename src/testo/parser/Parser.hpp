@@ -93,6 +93,7 @@ struct Parser {
 
 	std::shared_ptr<AST::Controller> controller();
 	std::shared_ptr<AST::Cmd> command();
+	std::shared_ptr<AST::ParallelBlock> parallel_block();
 	std::shared_ptr<AST::IKeyCombination> key_combination();
 	std::shared_ptr<AST::KeySpec> key_spec();
 	std::shared_ptr<AST::Action> action();

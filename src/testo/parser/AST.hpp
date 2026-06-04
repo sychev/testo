@@ -1184,6 +1184,29 @@ struct RegularCmd: public Cmd {
 	std::shared_ptr<Action> action;
 };
 
+//Runs every command inside the block concurrently (each command gets
+//its own cooperative coroutine). Used to set up several virtual machines
+//in parallel instead of one after another.
+struct ParallelBlock: public Cmd {
+	ParallelBlock(Token parallel_, std::shared_ptr<Block<Cmd>> block_):
+		parallel(std::move(parallel_)), block(std::move(block_)) {}
+
+	Pos begin() const override {
+		return parallel.begin();
+	}
+
+	Pos end() const override {
+		return block->end();
+	}
+
+	std::string to_string() const override {
+		return parallel.value() + " " + block->to_string();
+	}
+
+	Token parallel;
+	std::shared_ptr<Block<Cmd>> block;
+};
+
 //High-level constructions
 //may be machine, flash, macro or test declaration
 struct Stmt: public Node {

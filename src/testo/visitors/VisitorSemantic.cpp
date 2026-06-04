@@ -164,13 +164,21 @@ void VisitorSemantic::visit_command_block(std::shared_ptr<AST::Block<AST::Cmd>> 
 }
 
 void VisitorSemantic::visit_command(std::shared_ptr<AST::Cmd> cmd) {
-	if (auto p = std::dynamic_pointer_cast<AST::RegularCmd>(cmd)) {
+	if (auto p = std::dynamic_pointer_cast<AST::ParallelBlock>(cmd)) {
+		visit_parallel_block(p);
+	} else if (auto p = std::dynamic_pointer_cast<AST::RegularCmd>(cmd)) {
 		visit_regular_command({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::MacroCall<AST::Cmd>>(cmd)) {
 		visit_cmd_macro_call({p, stack});
 	} else {
 		throw Exception("Should never happen");
 	}
+}
+
+void VisitorSemantic::visit_parallel_block(std::shared_ptr<AST::ParallelBlock> parallel) {
+	current_test->cksum_input << "parallel {" << std::endl;
+	visit_command_block(parallel->block);
+	current_test->cksum_input << "}" << std::endl;
 }
 
 void VisitorSemantic::visit_regular_command(const IR::RegularCommand& regular_cmd) {

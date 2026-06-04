@@ -1,6 +1,7 @@
 
 #include <coro/CheckPoint.h>
 #include <coro/AsioTask.h>
+#include <coro/CoroPool.h>
 #include "VisitorInterpreter.hpp"
 #include "VisitorInterpreterActionMachine.hpp"
 #include "VisitorInterpreterActionFlashDrive.hpp"
@@ -544,6 +545,96 @@ void VisitorInterpreter::visit_test(const std::shared_ptr<IR::Test>& test) {
 	}
 }
 
+namespace {
+
+// Lightweight interpreter used to run a single branch of a `parallel` block.
+// Every branch keeps its own variable stack and "current controller", so the
+// concurrently running branches never clobber each other's execution context.
+// The reporter and the current test are shared (read-only for the test).
+//
+// This works without OS threads: the whole interpreter runs on a single
+// cooperative coroutine strand (coro::Application), and the blocking actions
+// (wait, sleep, exec, network IO) already yield via coro::CheckPoint, so while
+// one branch is waiting the others get a chance to run.
+struct ParallelBranchInterpreter {
+	ParallelBranchInterpreter(Reporter& reporter, std::shared_ptr<IR::Test> current_test, bool ignore_repl, std::shared_ptr<StackNode> stack):
+		stack(std::move(stack)), reporter(reporter), current_test(std::move(current_test)), ignore_repl(ignore_repl) {}
+
+	void visit_command(const std::shared_ptr<AST::Cmd>& cmd) {
+		if (auto p = std::dynamic_pointer_cast<AST::ParallelBlock>(cmd)) {
+			visit_parallel_block(p);
+		} else if (auto p = std::dynamic_pointer_cast<AST::RegularCmd>(cmd)) {
+			visit_regular_command({p, stack});
+		} else if (auto p = std::dynamic_pointer_cast<AST::MacroCall<AST::Cmd>>(cmd)) {
+			visit_macro_call({p, stack});
+		} else {
+			throw std::runtime_error("Should never happen");
+		}
+	}
+
+	void visit_command_block(const std::shared_ptr<AST::Block<AST::Cmd>>& block) {
+		for (auto command: block->items) {
+			visit_command(command);
+		}
+	}
+
+	void visit_regular_command(const IR::RegularCommand& regular_command) {
+		if (auto controller = IR::program->get_machine_or_null(regular_command.entity())) {
+			current_controller = controller;
+			VisitorInterpreterActionMachine(controller, stack, reporter, current_test, ignore_repl).visit_action(regular_command.ast_node->action);
+			current_controller = nullptr;
+		} else if (auto controller = IR::program->get_flash_drive_or_null(regular_command.entity())) {
+			current_controller = controller;
+			VisitorInterpreterActionFlashDrive(controller, stack, reporter, current_test, ignore_repl).visit_action(regular_command.ast_node->action);
+			current_controller = nullptr;
+		} else {
+			throw std::runtime_error("Should never happen");
+		}
+	}
+
+	void visit_macro_call(const IR::MacroCall& macro_call) {
+		reporter.macro_command_call(macro_call);
+		macro_call.visit_interpreter<AST::Cmd>(this);
+	}
+
+	void visit_macro_body(const std::shared_ptr<AST::Block<AST::Cmd>>& macro_body) {
+		visit_command_block(macro_body);
+	}
+
+	void visit_parallel_block(const std::shared_ptr<AST::ParallelBlock>& parallel);
+
+	std::shared_ptr<StackNode> stack;
+	std::shared_ptr<IR::Controller> current_controller;
+	Reporter& reporter;
+	std::shared_ptr<IR::Test> current_test;
+	bool ignore_repl = false;
+};
+
+// Runs every command of a parallel block in its own coroutine and waits for all
+// of them to finish. If a branch throws, CoroPool propagates the exception to
+// the parent coroutine and cancels the remaining branches (fail-fast).
+void run_parallel_block(
+	const std::shared_ptr<AST::ParallelBlock>& parallel,
+	Reporter& reporter,
+	std::shared_ptr<IR::Test> current_test,
+	bool ignore_repl,
+	std::shared_ptr<StackNode> stack)
+{
+	coro::CoroPool pool;
+	for (auto command: parallel->block->items) {
+		pool.exec([command, &reporter, current_test, ignore_repl, stack] {
+			ParallelBranchInterpreter(reporter, current_test, ignore_repl, stack).visit_command(command);
+		});
+	}
+	pool.waitAll();
+}
+
+void ParallelBranchInterpreter::visit_parallel_block(const std::shared_ptr<AST::ParallelBlock>& parallel) {
+	run_parallel_block(parallel, reporter, current_test, ignore_repl, stack);
+}
+
+} // namespace
+
 void VisitorInterpreter::visit_command_block(const std::shared_ptr<AST::Block<AST::Cmd>>& block) {
 	for (auto command: block->items) {
 		visit_command(command);
@@ -551,13 +642,19 @@ void VisitorInterpreter::visit_command_block(const std::shared_ptr<AST::Block<AS
 }
 
 void VisitorInterpreter::visit_command(const std::shared_ptr<AST::Cmd>& cmd) {
-	if (auto p = std::dynamic_pointer_cast<AST::RegularCmd>(cmd)) {
+	if (auto p = std::dynamic_pointer_cast<AST::ParallelBlock>(cmd)) {
+		visit_parallel_block(p);
+	} else if (auto p = std::dynamic_pointer_cast<AST::RegularCmd>(cmd)) {
 		visit_regular_command({p, stack});
 	} else if (auto p = std::dynamic_pointer_cast<AST::MacroCall<AST::Cmd>>(cmd)) {
 		visit_macro_call({p, stack});
 	} else {
 		throw std::runtime_error("Should never happen");
 	}
+}
+
+void VisitorInterpreter::visit_parallel_block(const std::shared_ptr<AST::ParallelBlock>& parallel) {
+	run_parallel_block(parallel, reporter, current_test, ignore_repl, stack);
 }
 
 void VisitorInterpreter::visit_regular_command(const IR::RegularCommand& regular_command) {
