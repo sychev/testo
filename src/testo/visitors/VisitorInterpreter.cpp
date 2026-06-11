@@ -1,7 +1,7 @@
 
 #include <coro/CheckPoint.h>
 #include <coro/AsioTask.h>
-#include <coro/CoroPool.h>
+#include "ParallelExecutor.hpp"
 #include "VisitorInterpreter.hpp"
 #include "VisitorInterpreterActionMachine.hpp"
 #include "VisitorInterpreterActionFlashDrive.hpp"
@@ -610,9 +610,10 @@ struct ParallelBranchInterpreter {
 	bool ignore_repl = false;
 };
 
-// Runs every command of a parallel block in its own coroutine and waits for all
-// of them to finish. If a branch throws, CoroPool propagates the exception to
-// the parent coroutine and cancels the remaining branches (fail-fast).
+// Runs every command of a parallel block concurrently and waits for all of
+// them to finish. Scheduling/cancellation is delegated to ParallelExecutor
+// (the single coroutine-library seam); this function only knows how to turn a
+// command into an isolated branch.
 void run_parallel_block(
 	const std::shared_ptr<AST::ParallelBlock>& parallel,
 	Reporter& reporter,
@@ -620,13 +621,13 @@ void run_parallel_block(
 	bool ignore_repl,
 	std::shared_ptr<StackNode> stack)
 {
-	coro::CoroPool pool;
+	ParallelExecutor executor;
 	for (auto command: parallel->block->items) {
-		pool.exec([command, &reporter, current_test, ignore_repl, stack] {
+		executor.spawn([command, &reporter, current_test, ignore_repl, stack] {
 			ParallelBranchInterpreter(reporter, current_test, ignore_repl, stack).visit_command(command);
 		});
 	}
-	pool.waitAll();
+	executor.join();
 }
 
 void ParallelBranchInterpreter::visit_parallel_block(const std::shared_ptr<AST::ParallelBlock>& parallel) {
