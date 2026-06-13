@@ -30,7 +30,10 @@ set(CPACK_OUTPUT_FILE_PREFIX "${CMAKE_BINARY_DIR}/out/pkg/")
 
 add_definitions(-DASIO_STANDALONE -DASIO_ENABLE_CANCELIO)
 
-set(CMAKE_CXX_STANDARD 17)
+# Bumped to 20: the coroutine substrate (asio::spawn + yield_context, see
+# 3rd_party/coro) and the `parallel` feature require C++20 and asio >= 1.36.
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(WIN32)
 	add_definitions(

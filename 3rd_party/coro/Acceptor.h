@@ -1,18 +1,16 @@
 
 #pragma once
 
-#include "coro/AsioTask.h"
-#include "coro/IoService.h"
+#include "coro/detail/Engine.hpp"
 #include "coro/CoroPool.h"
 
 namespace coro {
 
-/// Wrapper вокруг asio::ip::tcp::acceptor
+/// Wrapper around asio's acceptor (drop-in for old coro::Acceptor).
 template <typename Protocol>
 class Acceptor {
 public:
-	Acceptor(const typename Protocol::endpoint& endpoint): _handle(IoService::current()->_impl)
-	{
+	Acceptor(const typename Protocol::endpoint& endpoint): _handle(detail::io()) {
 		_handle.open(endpoint.protocol());
 		asio::socket_base::reuse_address option(true);
 		_handle.set_option(option);
@@ -20,35 +18,26 @@ public:
 		_handle.listen();
 	}
 
-	typename Protocol::socket accept()
-	{
-		typename Protocol::socket socket(IoService::current()->_impl);
-
-		AsioTask1 task;
-		_handle.async_accept(socket, task.callback());
-		task.wait(_handle);
-
+	typename Protocol::socket accept() {
+		typename Protocol::socket socket(detail::io());
+		detail::await([&](auto token) {
+			return _handle.async_accept(socket, token);
+		});
 		return socket;
 	}
 
-	/*!
-		@brief В цикле принимает подключения и запускает их обработчики в отдельных Strand
-		@param callback - функция-обработчик соединения
-	*/
-	void run(std::function<void(typename Protocol::socket)> callback)
-	{
-		CoroPool coroPool;
+	/// Accepts connections in a loop, running each handler in its own coroutine.
+	void run(std::function<void(typename Protocol::socket)> callback) {
+		CoroPool pool;
 		while (true) {
 			auto socket = accept();
-			coroPool.exec([&] {
+			pool.exec([&, socket = std::move(socket)]() mutable {
 				callback(std::move(socket));
 			});
 		}
 	}
 
-	typename Protocol::acceptor& handle() {
-		return _handle;
-	}
+	typename Protocol::acceptor& handle() { return _handle; }
 
 protected:
 	typename Protocol::acceptor _handle;

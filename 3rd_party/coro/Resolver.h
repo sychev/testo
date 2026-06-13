@@ -1,12 +1,11 @@
 
 #pragma once
 
-#include "coro/IoService.h"
-#include "coro/AsioTask.h"
+#include "coro/detail/Engine.hpp"
 
 namespace coro {
 
-/// Wrapper вокруг asio::ip::basic_resolver
+/// Wrapper around asio::ip::basic_resolver (drop-in for old coro::Resolver).
 template <typename InternetProtocol>
 class Resolver {
 public:
@@ -14,12 +13,12 @@ public:
 	typedef typename Impl::iterator Iterator;
 	typedef typename Impl::query Query;
 
-	Resolver(): _handle(IoService::current()->_impl) {}
+	Resolver(): _handle(detail::io()) {}
 
 	Iterator resolve(const Query& query) {
-		AsioTask2<Iterator> task;
-		_handle.async_resolve(query, task.callback());
-		return task.wait(_handle);
+		return detail::await([&](auto token) {
+			return _handle.async_resolve(query, token);
+		});
 	}
 
 private:

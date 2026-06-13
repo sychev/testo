@@ -1,16 +1,15 @@
 
 #pragma once
 
-#include <coro/IoService.h>
+#include <asio.hpp>
+#include "coro/detail/Engine.hpp"
 
 namespace coro {
 
-/// Wrapper вокруг asio::io_service::work
+/// Keeps the event loop alive while in scope (drop-in for old coro::Work).
 class Work {
-public:
-
 private:
-	asio::io_service::work _impl = asio::io_service::work(IoService::current()->_impl);
+	asio::executor_work_guard<asio::any_io_executor> _impl = asio::make_work_guard(detail::executor());
 };
 
 }

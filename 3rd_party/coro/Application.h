@@ -1,41 +1,44 @@
 
 #pragma once
 
-#include "coro/IoService.h"
-#include "coro/Coro.h"
+#include <functional>
+#include <asio.hpp>
 
 /*!
- 	@brief Библиотека для работы с асинхронным вводом/выводом с синхронным кодом
- 	@see @ref md_Docs_Про_корутины
+	@brief Cooperative-IO library: synchronous-looking code on top of asio.
+
+	Same public surface as before, but the engine is now asio::spawn +
+	yield_context (see coro/detail/Engine.hpp) instead of ucontext fibers.
 */
 namespace coro {
 
 /*!
-	@brief Используйте этот класс, для того, чтобы создать приложение на основе корутин
+	@brief Entry point of a coroutine-based application.
 
-	Пример:
 	@code
-	void main() {
+	int main() {
 		coro::Application([&] {
-			// Здесь можно пользоваться корутинами
+			// coroutine primitives (Timer, sockets, CoroPool, ...) usable here
 		}).run();
 	}
 	@endcode
 */
 class Application {
 public:
-	Application(const std::function<void()>& main);
-	/// Дожидается завершения всех корутин (НЕ отменяет их)
+	Application(std::function<void()> main);
 	~Application();
 
-	/// Запускает приложение в текущем потоке
+	/// Runs the event loop in the current thread until the root coroutine and
+	/// all of its children finish. Rethrows an exception escaping the root.
 	void run();
-	/// Отменяет корневую корутину (планирует выброс исключения) и сразу возвращает управление
+
+	/// Requests cancellation of the root coroutine and returns immediately.
 	void cancel();
 
 private:
-	IoService _ioService;
-	Coro _coro;
+	std::function<void()> _main;
+	asio::io_context _io;
+	asio::cancellation_signal _cancel;
 };
 
 }

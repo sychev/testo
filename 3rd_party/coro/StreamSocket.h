@@ -2,7 +2,6 @@
 #pragma once
 
 #include "coro/Stream.h"
-#include "coro/IoService.h"
 
 namespace coro {
 
@@ -14,17 +13,16 @@ public:
 	using BaseType::operator=;
 	using BaseType::_handle;
 
-	StreamSocket(): BaseType(typename Protocol::socket(IoService::current()->_impl)) {
-	}
-	StreamSocket(const typename Protocol::endpoint& endpoint): BaseType(typename Protocol::socket(IoService::current()->_impl, endpoint)) {
-	}
+	StreamSocket(): BaseType(typename Protocol::socket(detail::io())) {}
+
+	StreamSocket(const typename Protocol::endpoint& endpoint)
+		: BaseType(typename Protocol::socket(detail::io(), endpoint)) {}
 
 	void connect(const typename Protocol::endpoint& endpoint) {
-		AsioTask1 task;
-		_handle.async_connect(endpoint, task.callback());
-		task.wait(_handle);
+		detail::await([&](auto token) {
+			return _handle.async_connect(endpoint, token);
+		});
 	}
-
 };
 
 using TcpSocket = StreamSocket<asio::ip::tcp>;

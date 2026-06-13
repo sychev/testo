@@ -1,19 +1,13 @@
 
-#include "coro/IoService.h"
 #include "coro/CheckPoint.h"
-#include "coro/Coro.h"
+#include "coro/detail/Engine.hpp"
 
 namespace coro {
 
 void CheckPoint() {
-	auto coro = Coro::current();
-	std::string CheckPointToken = "CheckPoint " + std::to_string((uint64_t)coro);
-	IoService::current()->post([=] {
-		IoService::current()->checkpoints.push([=] {
-			coro->resume(CheckPointToken);
-		});
+	detail::await([](auto token) {
+		return asio::post(detail::executor(), token);
 	});
-	coro->yield({CheckPointToken, TokenThrow});
 }
 
 }

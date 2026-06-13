@@ -1,36 +1,44 @@
 
 #pragma once
 
-#include "coro/Coro.h"
-#include <mutex>
-#include <list>
+#include <asio/steady_timer.hpp>
+#include "coro/detail/Engine.hpp"
 
 namespace coro {
 
 /*!
-	@brief Обеспечивает монопольный доступ корутины к ресурсу.
+	@brief Cooperative mutex for coroutines (drop-in for old coro::Mutex).
 
-	Используейте вместе с std::lock_quard
+	Use with std::lock_guard. NOT thread-safe — it only serialises coroutines
+	running on the same single-threaded event loop. While the mutex is held, a
+	competing lock() suspends the coroutine until unlock() releases it (or the
+	coroutine is cancelled).
 
-	@warning НЕ потокобезопасен!!!
+	Implementation: a steady_timer used as a latch. unlock() cancels it, waking
+	every waiter; the waiters re-check `_locked` and exactly one proceeds.
 */
 class Mutex {
 public:
-	/*!
-		@brief Захват мьютекса
+	Mutex(): _latch(detail::io()) {}
 
-		Если мьютекс уже захвачен, то происходит выход из корутины до тех пор пока мьютекс
-		не освободиться. Или до тех пор, пока корутина не будет отменена.
-	*/
-	void lock();
-	/// Освобождение мьютекса
-	void unlock();
+	void lock() {
+		while (_locked) {
+			_latch.expires_at(Clock::time_point::max());
+			detail::suspend_quietly([&](auto token) {
+				return _latch.async_wait(token);
+			});
+		}
+		_locked = true;
+	}
+
+	void unlock() {
+		_locked = false;
+		_latch.cancel();   // wake the waiters; one of them will grab the lock
+	}
 
 private:
-	std::string token() const;
-
-	Coro* _owner = nullptr;
-	std::list<Coro*> _coros;
+	bool _locked = false;
+	asio::steady_timer _latch;
 };
 
 }

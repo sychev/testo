@@ -1,6 +1,5 @@
 
 #include <coro/CheckPoint.h>
-#include <coro/AsioTask.h>
 #include "ParallelExecutor.hpp"
 #include "VisitorInterpreter.hpp"
 #include "VisitorInterpreterActionMachine.hpp"
@@ -553,9 +552,10 @@ namespace {
 // The reporter and the current test are shared (read-only for the test).
 //
 // This works without OS threads: the whole interpreter runs on a single
-// cooperative coroutine strand (coro::Application), and the blocking actions
-// (wait, sleep, exec, network IO) already yield via coro::CheckPoint, so while
-// one branch is waiting the others get a chance to run.
+// cooperative coroutine strand (one asio io_context driven by coro::Application,
+// now backed by asio::spawn + yield_context), and the blocking actions (wait,
+// sleep, exec, network IO) yield at their suspension points, so while one branch
+// is waiting the others get a chance to run.
 struct ParallelBranchInterpreter {
 	ParallelBranchInterpreter(Reporter& reporter, std::shared_ptr<IR::Test> current_test, bool ignore_repl, std::shared_ptr<StackNode> stack):
 		stack(std::move(stack)), reporter(reporter), current_test(std::move(current_test)), ignore_repl(ignore_repl) {}

@@ -1,84 +1,50 @@
 
 #pragma once
 
-#include <asio/steady_timer.hpp>
-#include <atomic>
-#include "coro/Coro.h"
-#include "coro/IoService.h"
+#include "coro/detail/Engine.hpp"
 
 namespace coro {
 
-class Timeout;
-
-/// Исключение, выбрасываемое при срабатывании таймаута
-class TimeoutError: public std::runtime_error {
-public:
-	TimeoutError(Timeout* timeout): std::runtime_error("Timeout was triggered"), _timeout(timeout) {}
-
-	Timeout* timeout() const {
-		return _timeout;
-	}
-
-private:
-	Timeout* _timeout;
-};
+// TimeoutError is declared in detail/Engine.hpp (so that detail::await can throw
+// it). It is re-exported here for callers that include only Timeout.h.
 
 /*!
-	@brief Таймаут, что ещё тут скажешь
+	@brief Scoped deadline (drop-in for the old coro::Timeout).
 
-	@warning Этот код НЕ РАБОТАЕТ:
+	While this object is alive, every suspension below it (Timer, sockets,
+	CheckPoint, ...) is bounded by the deadline and throws TimeoutError when it
+	elapses. Deadlines nest: the nearest (earliest) one always wins.
+
+	Implementation note: unlike the old version, this no longer arms its own
+	timer. It simply pushes an absolute deadline onto a thread-local stack;
+	detail::await() enforces it with asio::cancel_after on each operation. This
+	removes a whole class of "timer fired between operations" races.
+
+	@warning As before, this declares a VARIABLE, not a function:
 	@code
-		class A {
-		public:
-			enum { TIMEOUT = 10 };
-
-			void f() {
-				Timeout timeout(std::chrono::seconds(TIMEOUT));
-				....
-			}
-		};
+		coro::Timeout timeout(std::chrono::seconds(10));
 	@endcode
-	Здесь не объявление переменной, здесь объявление ФУНКЦИИ
 */
 class Timeout {
 public:
-	/// Установить таймаут
 	template <typename Duration>
-	Timeout(Duration duration): _timer(IoService::current()->_impl) {
-		_timer.expires_from_now(duration);
-		_timer.async_wait([=](const std::error_code& errorCode) {
-			_callbackExecuted = true;
-			if (_timerCanceled) {
-				return _coro->resume(token());
-			}
-			if (errorCode) {
-				return _coro->propagateException(std::system_error(errorCode));
-			}
-			_coro->propagateException(TimeoutError(this));
-		});
+	explicit Timeout(Duration duration) {
+		auto deadline = Clock::now() + std::chrono::duration_cast<Clock::duration>(duration);
+		// Collapse with the parent deadline: a nested scope can only tighten it.
+		if (auto parent = detail::current_deadline(); parent && *parent < deadline) {
+			deadline = *parent;
+		}
+		detail::deadline_stack.push_back(deadline);
 	}
-	/// Снять таймаут
+
 	~Timeout() {
-		if (!_callbackExecuted) {
-			_timerCanceled = true;
-			_timer.cancel();
-			waitCallbackExecution();
+		if (!detail::deadline_stack.empty()) {
+			detail::deadline_stack.pop_back();
 		}
 	}
 
-private:
-	void waitCallbackExecution() {
-		_coro->yield({token()});
-	}
-
-
-	std::string token() const {
-		return "Timeout " + std::to_string((uint64_t)this);
-	}
-
-	asio::steady_timer _timer;
-	Coro* _coro = Coro::current();
-	bool _timerCanceled = false, _callbackExecuted = false;
+	Timeout(const Timeout&) = delete;
+	Timeout& operator=(const Timeout&) = delete;
 };
 
 }

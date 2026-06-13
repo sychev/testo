@@ -6,8 +6,8 @@
 // ====================================================================
 // Concurrency seam for the `parallel` block.
 //
-// This is the ONLY place that depends on the coroutine library (Coro).
-// It exposes a tiny fan-out / fan-in primitive:
+// This is the single place that knows HOW branches are scheduled. It
+// exposes a tiny fan-out / fan-in primitive:
 //
 //     ParallelExecutor executor;
 //     executor.spawn(branch1);
@@ -20,14 +20,11 @@
 // ParallelBranchInterpreter) does not know how branches are scheduled —
 // it only talks to this interface.
 //
-// To move off Coro while keeping asio, reimplement just this struct on
-// top of asio::spawn + asio::experimental::make_parallel_group: have
-// `spawn` collect one deferred operation per branch and `join` run
-//
-//     make_parallel_group(branches)
-//         .async_wait(wait_for_one_error(), yield);
-//
-// Nothing else in the codebase needs to change.
+// It is built on coro::CoroPool. After the Coro->asio migration, CoroPool
+// is itself implemented on asio::spawn + yield_context (see
+// 3rd_party/coro/CoroPool.cpp), so this seam runs on asio coroutines while
+// keeping the single-threaded cooperative model: branches truly overlap on
+// their blocking waits, with no OS threads and no data races.
 // ====================================================================
 
 struct ParallelExecutor {
