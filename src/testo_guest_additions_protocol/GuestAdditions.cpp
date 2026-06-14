@@ -1,55 +1,59 @@
 
-#include <coro/Timeout.h>
 #include "GuestAdditions.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 #include <os/File.hpp>
 #include "base64.hpp"
 #include <regex>
 
 using namespace std::literals::chrono_literals;
 
-bool GuestAdditions::is_avaliable(std::chrono::milliseconds time_to_wait) {
+asio::awaitable<bool> GuestAdditions::is_avaliable(std::chrono::milliseconds time_to_wait) {
 	try {
-		nlohmann::json request = {
-			{"method", "check_avaliable"}
+		auto work = [this]() -> asio::awaitable<bool> {
+			nlohmann::json request = {
+				{"method", "check_avaliable"}
+			};
+
+			co_await send(std::move(request));
+
+			auto response = co_await recv();
+			co_return response.at("success").get<bool>();
 		};
 
-		coro::Timeout timeout(time_to_wait);
-
-		send(std::move(request));
-
-		auto response = recv();
-		return response.at("success").get<bool>();
+		co_return co_await coro::with_timeout(work(), time_to_wait);
 	} catch (const std::exception&) {
-		return false;
+		co_return false;
 	}
 }
 
-std::string GuestAdditions::get_tmp_dir() {
-	nlohmann::json request = {
-		{"method", "get_tmp_dir"}
+asio::awaitable<std::string> GuestAdditions::get_tmp_dir() {
+	auto work = [this]() -> asio::awaitable<std::string> {
+		nlohmann::json request = {
+			{"method", "get_tmp_dir"}
+		};
+
+		co_await send(std::move(request));
+
+		auto response = co_await recv();
+		co_return response.at("result").at("path").get<std::string>();
 	};
 
-	coro::Timeout timeout(3s);
-
-	send(std::move(request));
-
-	auto response = recv();
-	return response.at("result").at("path");
+	co_return co_await coro::with_timeout(work(), std::chrono::duration_cast<std::chrono::milliseconds>(3s));
 }
 
-void GuestAdditions::copy_to_guest(const fs::path& src, const fs::path& dst) {
-	is_avaliable();
+asio::awaitable<void> GuestAdditions::copy_to_guest(const fs::path& src, const fs::path& dst) {
+	co_await is_avaliable();
 
 	if (fs::is_regular_file(src)) {
-		copy_file_to_guest(src, dst);
+		co_await copy_file_to_guest(src, dst);
 	} else if (fs::is_directory(src)) {
-		copy_dir_to_guest(src, dst);
+		co_await copy_dir_to_guest(src, dst);
 	} else {
 		throw std::runtime_error("Unknown type of file: " + src.generic_string());
 	}
 }
 
-void GuestAdditions::copy_from_guest(const fs::path& src, const fs::path& dst) {
+asio::awaitable<void> GuestAdditions::copy_from_guest(const fs::path& src, const fs::path& dst) {
 	nlohmann::json request = {
 		{"method", "copy_files_out"}
 	};
@@ -58,9 +62,9 @@ void GuestAdditions::copy_from_guest(const fs::path& src, const fs::path& dst) {
 	request["args"].push_back(src.generic_string());
 	request["args"].push_back(dst.generic_string());
 
-	send(std::move(request));
+	co_await send(std::move(request));
 
-	auto response = recv();
+	auto response = co_await recv();
 
 	for (auto& file: response.at("result")) {
 		fs::path dst = file.at("path").get<std::string>();
@@ -76,13 +80,13 @@ void GuestAdditions::copy_from_guest(const fs::path& src, const fs::path& dst) {
 			f.write(content.data(), content.size());
 		} else {
 			uint64_t file_length = 0;
-			recv_raw((uint8_t*)&file_length, sizeof(file_length));
+			co_await recv_raw((uint8_t*)&file_length, sizeof(file_length));
 			uint64_t i = 0;
 			const uint64_t buf_size = 8 * 1024;
 			uint8_t buf[buf_size];
 			while (i < file_length) {
 				uint64_t chunk_size = std::min(buf_size, file_length - i);
-				recv_raw(buf, chunk_size);
+				co_await recv_raw(buf, chunk_size);
 				f.write(buf, chunk_size);
 				i += chunk_size;
 			}
@@ -90,23 +94,24 @@ void GuestAdditions::copy_from_guest(const fs::path& src, const fs::path& dst) {
 	}
 }
 
-void GuestAdditions::remove_from_guest(const fs::path& path) {
+asio::awaitable<void> GuestAdditions::remove_from_guest(const fs::path& path) {
 	// TODO
+	co_return;
 }
 
-void GuestAdditions::copy_dir_to_guest(const fs::path& src, const fs::path& dst) {
+asio::awaitable<void> GuestAdditions::copy_dir_to_guest(const fs::path& src, const fs::path& dst) {
 	for (auto& file: fs::directory_iterator(src)) {
 		if (fs::is_regular_file(file)) {
-			copy_file_to_guest(file, dst / file.path().filename());
+			co_await copy_file_to_guest(file, dst / file.path().filename());
 		} else if (fs::is_directory(file)) {
-			copy_dir_to_guest(file, dst / file.path().filename());
+			co_await copy_dir_to_guest(file, dst / file.path().filename());
 		} else {
 			throw std::runtime_error("Unknown type of file: " + fs::path(file).generic_string());
 		}
 	}
 }
 
-nlohmann::json GuestAdditions::execute(const std::string& command, const std::map<std::string, std::string>& vars,
+asio::awaitable<nlohmann::json> GuestAdditions::execute(const std::string& command, const std::map<std::string, std::string>& vars,
 	const std::function<void(const std::string&)>& callback)
 {
 	nlohmann::json request = {
@@ -117,10 +122,10 @@ nlohmann::json GuestAdditions::execute(const std::string& command, const std::ma
 		{"vars", vars},
 	};
 
-	send(std::move(request));
+	co_await send(std::move(request));
 
 	while (true) {
-		auto response = recv();
+		auto response = co_await recv();
 
 		auto result = response.at("result");
 		if (result.count("stdout")) {
@@ -132,12 +137,12 @@ nlohmann::json GuestAdditions::execute(const std::string& command, const std::ma
 			callback((char*)output.data());
 		}
 		if (result.at("status").get<std::string>() == "finished") {
-			return result;
+			co_return result;
 		}
 	}
 }
 
-void GuestAdditions::copy_file_to_guest(const fs::path& src, const fs::path& dst) {
+asio::awaitable<void> GuestAdditions::copy_file_to_guest(const fs::path& src, const fs::path& dst) {
 	try {
 		nlohmann::json request = {
 			{"method", "copy_file"},
@@ -153,31 +158,31 @@ void GuestAdditions::copy_file_to_guest(const fs::path& src, const fs::path& dst
 			std::vector<uint8_t> fileContents = f.read_all();
 			std::string encoded = base64_encode(fileContents.data(), fileContents.size());
 			request.at("args")[0]["content"] = encoded;
-			send(std::move(request));
+			co_await send(std::move(request));
 		} else {
 			request.at("args")[0]["content"] = nullptr;
-			send(std::move(request));
+			co_await send(std::move(request));
 
 			uint64_t file_length = f.size();
-			send_raw((uint8_t*)&file_length, sizeof(file_length));
+			co_await send_raw((uint8_t*)&file_length, sizeof(file_length));
 			uint64_t i = 0;
 			const uint64_t buf_size = 8 * 1024;
 			uint8_t buf[buf_size];
 			while (i < file_length) {
 				uint64_t chunk_size = std::min(buf_size, file_length - i);
 				f.read(buf, chunk_size);
-				send_raw(buf, chunk_size);
+				co_await send_raw(buf, chunk_size);
 				i += chunk_size;
 			}
 		}
 
-		auto response = recv();
+		auto response = co_await recv();
 	} catch (const std::exception& error) {
 		std::throw_with_nested(std::runtime_error("Failed to copy host " + src.generic_string() + " to guest " + dst.generic_string()));
 	}
 }
 
-bool GuestAdditions::mount(const std::string& folder_name, const fs::path& guest_path, bool permanent) {
+asio::awaitable<bool> GuestAdditions::mount(const std::string& folder_name, const fs::path& guest_path, bool permanent) {
 	nlohmann::json request = {
 		{"method", "mount"},
 		{"args", {
@@ -186,24 +191,24 @@ bool GuestAdditions::mount(const std::string& folder_name, const fs::path& guest
 			{"permanent", permanent},
 		}}
 	};
-	send(std::move(request));
-	auto response = recv();
-	return response.at("was_indeed_mounted");
+	co_await send(std::move(request));
+	auto response = co_await recv();
+	co_return response.at("was_indeed_mounted");
 }
 
-nlohmann::json GuestAdditions::get_shared_folder_status(const std::string& folder_name) {
+asio::awaitable<nlohmann::json> GuestAdditions::get_shared_folder_status(const std::string& folder_name) {
 	nlohmann::json request = {
 		{"method", "get_shared_folder_status"},
 		{"args", {
 			{"folder_name", folder_name}
 		}}
 	};
-	send(std::move(request));
-	auto response = recv();
-	return response.at("result");
+	co_await send(std::move(request));
+	auto response = co_await recv();
+	co_return response.at("result");
 }
 
-bool GuestAdditions::umount(const std::string& folder_name, bool permanent) {
+asio::awaitable<bool> GuestAdditions::umount(const std::string& folder_name, bool permanent) {
 	nlohmann::json request = {
 		{"method", "umount"},
 		{"args", {
@@ -211,25 +216,25 @@ bool GuestAdditions::umount(const std::string& folder_name, bool permanent) {
 			{"permanent", permanent},
 		}}
 	};
-	send(std::move(request));
-	auto response = recv();
-	return response.at("was_indeed_umounted");
+	co_await send(std::move(request));
+	auto response = co_await recv();
+	co_return response.at("was_indeed_umounted");
 }
 
-void GuestAdditions::send(nlohmann::json command) {
+asio::awaitable<void> GuestAdditions::send(nlohmann::json command) {
 	command["version"] = TESTO_VERSION;
 	auto command_str = command.dump();
 	uint32_t command_length = command_str.length();
-	send_raw((uint8_t*)&command_length, sizeof(command_length));
-	send_raw((uint8_t*)command_str.data(), command_str.size());
+	co_await send_raw((uint8_t*)&command_length, sizeof(command_length));
+	co_await send_raw((uint8_t*)command_str.data(), command_str.size());
 }
 
-nlohmann::json GuestAdditions::recv() {
+asio::awaitable<nlohmann::json> GuestAdditions::recv() {
 	uint32_t json_length = 0;
-	recv_raw((uint8_t*)&json_length, sizeof(json_length));
+	co_await recv_raw((uint8_t*)&json_length, sizeof(json_length));
 	std::string json_str;
 	json_str.resize(json_length);
-	recv_raw((uint8_t*)json_str.data(), json_str.size());
+	co_await recv_raw((uint8_t*)json_str.data(), json_str.size());
 	nlohmann::json response = nlohmann::json::parse(json_str);
 
 	if (response.count("version")) {
@@ -250,10 +255,10 @@ nlohmann::json GuestAdditions::recv() {
 		}
 	}
 
-	return response;
+	co_return response;
 }
 
-void CLIGuestAdditions::set_var(const std::string& var_name, const std::string& var_value, bool global) {
+asio::awaitable<void> CLIGuestAdditions::set_var(const std::string& var_name, const std::string& var_value, bool global) {
 	nlohmann::json request = {
 		{"method", "set_var"},
 		{"args", {
@@ -262,18 +267,18 @@ void CLIGuestAdditions::set_var(const std::string& var_name, const std::string& 
 			{"global", global},
 		}}
 	};
-	send(std::move(request));
-	auto response = recv();
+	co_await send(std::move(request));
+	auto response = co_await recv();
 }
 
-std::string CLIGuestAdditions::get_var(const std::string& var_name) {
+asio::awaitable<std::string> CLIGuestAdditions::get_var(const std::string& var_name) {
 	nlohmann::json request = {
 		{"method", "get_var"},
 		{"args", {
 			{"var_name", var_name},
 		}}
 	};
-	send(std::move(request));
-	auto response = recv();
-	return response.at("var_value");
+	co_await send(std::move(request));
+	auto response = co_await recv();
+	co_return response.at("var_value");
 }

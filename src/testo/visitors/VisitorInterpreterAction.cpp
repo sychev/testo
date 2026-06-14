@@ -1,5 +1,5 @@
 
-#include "../coro_asio_bridge.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 #include "VisitorInterpreterAction.hpp"
 #include "../Exceptions.hpp"
 #include "../IR/Program.hpp"

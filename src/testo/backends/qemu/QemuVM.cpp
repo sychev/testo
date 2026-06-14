@@ -4,7 +4,7 @@
 #include "QemuGuestAdditions.hpp"
 #include "QemuEnvironment.hpp"
 
-#include "../../coro_asio_bridge.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 #include <coro/Timeout.h>
 
 #include <os/Process.hpp>
@@ -911,11 +911,11 @@ nlohmann::json QemuVM::make_snapshot(const std::string& snapshot) {
 		if (config.count("shared_folder") && config.at("shared_folder").size() && (state() == VmState::Suspended)) {
 			resume();
 			QemuGuestAdditions ga(domain);
-			if (ga.is_avaliable(1500ms)) {
+			if (coro::await(ga.is_avaliable(1500ms))) {
 				for (auto& shared_folder: config.at("shared_folder")) {
-					auto folder_status = ga.get_shared_folder_status(shared_folder.at("name"));
+					auto folder_status = coro::await(ga.get_shared_folder_status(shared_folder.at("name")));
 					if (folder_status.at("is_mounted")) {
-						ga.umount(folder_status.at("name"), false);
+						coro::await(ga.umount(folder_status.at("name"), false));
 						umounted_folders.push_back(folder_status);
 					}
 				}
@@ -983,7 +983,7 @@ nlohmann::json QemuVM::make_snapshot(const std::string& snapshot) {
 			resume();
 			QemuGuestAdditions ga(domain);
 			for (auto& folder_status: umounted_folders) {
-				ga.mount(folder_status.at("name"), folder_status.at("guest_path").get<std::string>(), false);
+				coro::await(ga.mount(folder_status.at("name"), folder_status.at("guest_path").get<std::string>(), false));
 			}
 			suspend();
 		}
@@ -1050,7 +1050,7 @@ void QemuVM::rollback(const std::string& snapshot, const nlohmann::json& opaque)
 			resume();
 			QemuGuestAdditions ga(domain);
 			for (auto& folder_status: opaque.at("automaticaly_umounted_shared_folders")) {
-				ga.mount(folder_status.at("name"), folder_status.at("guest_path").get<std::string>(), false);
+				coro::await(ga.mount(folder_status.at("name"), folder_status.at("guest_path").get<std::string>(), false));
 			}
 			suspend();
 		}

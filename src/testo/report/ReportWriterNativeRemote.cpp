@@ -1,6 +1,6 @@
 
 #include "ReportWriterNativeRemote.hpp"
-#include "../coro_asio_bridge.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 
 asio::ip::tcp::endpoint parse_tcp_endpoint(const std::string& endpoint);
 

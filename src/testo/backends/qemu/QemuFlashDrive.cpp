@@ -1,4 +1,5 @@
 
+#include <cstdint>
 #include <os/Process.hpp>
 #include <pugixml/pugixml.hpp>
 #include <guestfs/guestfs.hpp>

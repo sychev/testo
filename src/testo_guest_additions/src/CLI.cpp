@@ -1,31 +1,40 @@
 
 #include <coro/Application.h>
-#include <coro/StreamSocket.h>
+#include <asio.hpp>
+#include <optional>
 #include <clipp.h>
 #include <iostream>
 #include <testo_guest_additions_protocol/GuestAdditions.hpp>
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 
 #ifdef __linux__
 struct GA: CLIGuestAdditions {
 	GA() {
-		socket.connect("/var/run/testo-guest-additions.sock");
+		coro::await(async_connect());
 	}
 
 private:
-	void send_raw(const uint8_t* data, size_t size) override {
-		size_t n = socket.write(data, size);
+	asio::awaitable<void> async_connect() {
+		socket.emplace(co_await asio::this_coro::executor);
+		co_await socket->async_connect(
+			asio::local::stream_protocol::endpoint("/var/run/testo-guest-additions.sock"),
+			asio::use_awaitable);
+	}
+
+	asio::awaitable<void> send_raw(const uint8_t* data, size_t size) override {
+		size_t n = co_await asio::async_write(*socket, asio::buffer(data, size), asio::use_awaitable);
 		if (n != size) {
 			throw std::runtime_error(__PRETTY_FUNCTION__);
 		}
 	}
-	void recv_raw(uint8_t* data, size_t size) override {
-		size_t n = socket.read(data, size);
+	asio::awaitable<void> recv_raw(uint8_t* data, size_t size) override {
+		size_t n = co_await asio::async_read(*socket, asio::buffer(data, size), asio::use_awaitable);
 		if (n != size) {
 			throw std::runtime_error(__PRETTY_FUNCTION__);
 		}
 	}
 
-	coro::StreamSocket<asio::local::stream_protocol> socket;
+	std::optional<asio::local::stream_protocol::socket> socket;
 };
 #else
 struct GA: CLIGuestAdditions {
@@ -35,13 +44,15 @@ struct GA: CLIGuestAdditions {
 	}
 
 private:
-	void send_raw(const uint8_t* data, size_t size) override {
+	asio::awaitable<void> send_raw(const uint8_t* data, size_t size) override {
 		// IMPLEMENT ME!!!!
 		throw std::runtime_error(__PRETTY_FUNCTION__);
+		co_return;
 	}
-	void recv_raw(uint8_t* data, size_t size) override {
+	asio::awaitable<void> recv_raw(uint8_t* data, size_t size) override {
 		// IMPLEMENT ME!!!!
 		throw std::runtime_error(__PRETTY_FUNCTION__);
+		co_return;
 	}
 };
 #endif
@@ -68,25 +79,25 @@ struct GetArgs {
 };
 
 void mount_mode(const MountArgs& args) {
-	bool was_indeed_mounted = GA().mount(args.folder_name, fs::absolute(args.guest_path), args.permanent);
+	bool was_indeed_mounted = coro::await(GA().mount(args.folder_name, fs::absolute(args.guest_path), args.permanent));
 	if (!was_indeed_mounted) {
 		std::cout << "The shared folder is already mounted" << std::endl;
 	}
 }
 
 void umount_mode(const UmountArgs& args) {
-	bool was_indeed_umounted = GA().umount(args.folder_name, args.permanent);
+	bool was_indeed_umounted = coro::await(GA().umount(args.folder_name, args.permanent));
 	if (!was_indeed_umounted) {
 		std::cout << "The shared folder is already umounted" << std::endl;
 	}
 }
 
 void set_mode(const SetArgs& args) {
-	GA().set_var(args.var_name, args.var_value, args.global);
+	coro::await(GA().set_var(args.var_name, args.var_value, args.global));
 }
 
 void get_mode(const GetArgs& args) {
-	std::string var_value = GA().get_var(args.var_name);
+	std::string var_value = coro::await(GA().get_var(args.var_name));
 	std::cout << var_value;
 }
 

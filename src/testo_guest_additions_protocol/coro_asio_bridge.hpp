@@ -1,11 +1,14 @@
 #pragma once
 
 #include <asio.hpp>
+#include <asio/experimental/awaitable_operators.hpp>
 #include <coro/Coro.h>
 #include <coro/IoService.h>
 
+#include <chrono>
 #include <exception>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 /*
@@ -118,6 +121,21 @@ void sleep_until(TimePoint time_point) {
 		timer.expires_at(time_point);
 		co_await timer.async_wait(asio::use_awaitable);
 	}());
+}
+
+// Замена coro::Timeout для awaitable-кода: выполняет операцию op, и если она не
+// успевает за timeout, отменяет её и бросает std::runtime_error("Timeout").
+// Чисто на asio (без coro), вызывается изнутри awaitable через co_await.
+template <typename T>
+asio::awaitable<T> with_timeout(asio::awaitable<T> op, std::chrono::milliseconds timeout) {
+	using namespace asio::experimental::awaitable_operators;
+	asio::steady_timer timer(co_await asio::this_coro::executor);
+	timer.expires_after(timeout);
+	auto result = co_await (std::move(op) || timer.async_wait(asio::use_awaitable));
+	if (result.index() == 1) {
+		throw std::runtime_error("Timeout");
+	}
+	co_return std::get<0>(std::move(result));
 }
 
 } // namespace coro

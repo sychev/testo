@@ -1,5 +1,5 @@
 
-#include "../../coro_asio_bridge.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 #include "HyperVGuestAdditions.hpp"
 #include "HyperVVM.hpp"
 #include <iostream>

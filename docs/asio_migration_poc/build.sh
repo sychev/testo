@@ -15,7 +15,7 @@ mkdir -p "$WORK/asio"
 tar xzf "$WORK/asio.tgz" -C "$WORK/asio" --strip-components=1
 ASIO_INC="$WORK/asio/asio/include"
 
-INC="-I$ASIO_INC -I$REPO/3rd_party -I$REPO/src/testo"
+INC="-I$ASIO_INC -I$REPO/3rd_party -I$REPO/src -I$REPO/src/testo"
 FLAGS="-std=c++20 -DASIO_STANDALONE"
 
 echo ">> building coro (from repo) ..."

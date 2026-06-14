@@ -2,7 +2,7 @@
 #include <asio.hpp>
 #include <coro/Application.h>
 #include <coro/Timeout.h>
-#include "coro_asio_bridge.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 
 #include <chrono>
 #include <future>

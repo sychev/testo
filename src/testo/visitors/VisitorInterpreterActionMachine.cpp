@@ -1,7 +1,7 @@
 
 #include <coro/CheckPoint.h>
 #include <coro/Timeout.h>
-#include "../coro_asio_bridge.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 #include "VisitorInterpreterActionMachine.hpp"
 #include "../NNClient.hpp"
 #include "../Exceptions.hpp"
@@ -189,7 +189,7 @@ void VisitorInterpreterActionMachine::visit_copy(const IR::Copy& copy) {
 
 		auto ga = vmc->vm()->guest_additions();
 
-		if (!ga->is_avaliable()) {
+		if (!coro::await(ga->is_avaliable())) {
 			throw std::runtime_error(fmt::format("guest additions are not installed"));
 		}
 
@@ -198,9 +198,9 @@ void VisitorInterpreterActionMachine::visit_copy(const IR::Copy& copy) {
 			if (!fs::exists(copy.from())) {
 				throw std::runtime_error("Specified path doesn't exist: " + copy.from());
 			}
-			ga->copy_to_guest(copy.from(), copy.to());
+			coro::await(ga->copy_to_guest(copy.from(), copy.to()));
 		} else {
-			ga->copy_from_guest(copy.from(), copy.to());;
+			coro::await(ga->copy_from_guest(copy.from(), copy.to()));
 		}
 	} catch (const std::exception& error) {
 		std::throw_with_nested(ActionException(copy.ast_node, current_controller));
@@ -1008,7 +1008,7 @@ void VisitorInterpreterActionMachine::visit_exec(const IR::Exec& exec) {
 
 		auto ga = vmc->vm()->guest_additions();
 
-		if (!ga->is_avaliable()) {
+		if (!coro::await(ga->is_avaliable())) {
 			throw std::runtime_error(fmt::format("guest additions are not installed"));
 		}
 
@@ -1042,7 +1042,7 @@ void VisitorInterpreterActionMachine::visit_exec(const IR::Exec& exec) {
 		std::string hash = std::to_string(h(script));
 
 		fs::path host_script_dir = fs::temp_directory_path();
-		fs::path guest_script_dir = ga->get_tmp_dir();
+		fs::path guest_script_dir = coro::await(ga->get_tmp_dir());
 
 		fs::path host_script_file = host_script_dir / std::string(hash + extension);
 		fs::path guest_script_file = guest_script_dir / std::string(hash + extension);
@@ -1054,7 +1054,7 @@ void VisitorInterpreterActionMachine::visit_exec(const IR::Exec& exec) {
 		script_stream << script;
 		script_stream.close();
 
-		ga->copy_to_guest(host_script_file, guest_script_file); //5 seconds should be enough to pass any script
+		coro::await(ga->copy_to_guest(host_script_file, guest_script_file)); //5 seconds should be enough to pass any script
 
 		fs::remove(host_script_file.generic_string());
 
@@ -1062,9 +1062,9 @@ void VisitorInterpreterActionMachine::visit_exec(const IR::Exec& exec) {
 
 		coro::Timeout timeout(exec.timeout().value());
 
-		nlohmann::json result = ga->execute(command, *vmc->get_vars(), [&](const std::string& output) {
+		nlohmann::json result = coro::await(ga->execute(command, *vmc->get_vars(), [&](const std::string& output) {
 			reporter.exec_command_output(output);
-		});
+		}));
 		int exit_code = result.at("exit_code");
 		if (exit_code != 0) {
 			throw std::runtime_error(exec.interpreter() + " command failed");
@@ -1080,7 +1080,7 @@ void VisitorInterpreterActionMachine::visit_exec(const IR::Exec& exec) {
 				}
 			}
 		}
-		ga->remove_from_guest(guest_script_file);
+		coro::await(ga->remove_from_guest(guest_script_file));
 
 	} catch (const std::exception& error) {
 		std::throw_with_nested(ActionException(exec.ast_node, current_controller));

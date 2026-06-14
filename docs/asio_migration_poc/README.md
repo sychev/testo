@@ -88,11 +88,38 @@ PoC OK: read прерван по coro::Timeout, asio-операция отмен
 ещё-синхронный код визиторов и переводятся на `||`-комбинаторы /
 `co_await asio::post` на следующих этапах, когда визиторы станут `awaitable`.
 
-## Следующие шаги (Этап 3+)
+## Этап 3 (сделано) — протокол GuestAdditions на awaitable
 
-Интерфейс `ReportWriter`/`Reporter` → `awaitable`, затем визиторы
-(`VisitorInterpreter*`, `CheckPoint` → `co_await asio::post`, `Timeout` → таймер
-в `||` с операцией), и наконец `main.cpp` (`Application`/`CoroPool`/`SignalSet`
-→ `io_context` + `co_spawn` + `cancellation_signal` + `asio::signal_set`),
-а также `Channel.hpp`/`NNClient`-сокет (общий с `nn_server` — согласовать
-отдельно). После этого мост и `coro` из сборки `testo` удаляются.
+Пройдена граница общего протокола (по согласованию — scope расширен на
+`testo_guest_additions`, агент `testo-guest-additions` не затронут, т.к. не
+использует клиентский класс `GuestAdditions`).
+
+- **`GuestAdditions` (общий протокол)**: все методы (`is_avaliable`, `execute`,
+  `copy_to_guest/from_guest`, `mount/umount`, `send/recv`, `send_raw/recv_raw`,
+  `set_var/get_var` …) переведены на `asio::awaitable` + `co_await`.
+- **`coro::Timeout` внутри протокола** (в `is_avaliable`/`get_tmp_dir`) заменён
+  на `coro::with_timeout(op, d)` — чистый asio через `awaitable_operators` (`||`
+  с таймером), добавлен в мост.
+- **Реализации транспорта** `QemuGuestAdditions`/`HyperVGuestAdditions`:
+  `send_raw/recv_raw` теперь прямые awaitable-оверрайды (без внутреннего моста).
+- **Вызывающие** (`QemuVM` 5 мест, `VisitorInterpreterActionMachine` 8 мест,
+  guest `CLI.cpp` 4 места) пока вызывают протокол через мост `coro::await(...)`
+  — граница awaitable поднимется выше на следующих этапах.
+- **Мост перенесён** в общую папку `src/testo_guest_additions_protocol/` (нужен
+  обоим бинарникам), все включения обновлены.
+- Починен латентный баг: `QemuFlashDrive.cpp` не включал `<cstdint>` (раньше
+  приходил транзитивно).
+
+Проверено: **все 51 .cpp `testo_core`** (libvirt/guestfs поставлены) + общий
+`GuestAdditions.cpp` + guest `CLI.cpp` проходят `-fsyntax-only` под C++20/asio
+1.36; PoC-harness (round-trip + отмена) собирается и проходит.
+
+## Следующие шаги (Этап 4+)
+
+Поднять границу awaitable выше моста: VM-методы (`QemuVM`/`HyperVVM`,
+`VM.hpp`) → `awaitable`, затем `ReportWriter`/`Reporter` и визиторы
+(`VisitorInterpreter*`, `CheckPoint` → `co_await asio::post`, `coro::Timeout` →
+`coro::with_timeout`), и наконец `main.cpp` (`Application`/`CoroPool`/`SignalSet`
+→ `io_context` + `co_spawn` + `cancellation_signal` + `asio::signal_set`), плюс
+`Channel.hpp`/`NNClient`-сокет (общий с `nn_server`). После этого мост и `coro`
+из сборки `testo`/`testo_guest_additions` удаляются.

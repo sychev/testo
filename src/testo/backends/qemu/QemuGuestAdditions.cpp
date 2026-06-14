@@ -1,6 +1,6 @@
 
 #include "QemuGuestAdditions.hpp"
-#include "../../coro_asio_bridge.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 
 QemuGuestAdditions::QemuGuestAdditions(vir::Domain& domain) {
 	auto config = domain.dump_xml();
@@ -29,23 +29,15 @@ asio::awaitable<void> QemuGuestAdditions::async_connect() {
 	co_await socket->async_connect(endpoint, asio::use_awaitable);
 }
 
-asio::awaitable<size_t> QemuGuestAdditions::async_send(const uint8_t* data, size_t size) {
-	co_return co_await asio::async_write(*socket, asio::buffer(data, size), asio::use_awaitable);
-}
-
-asio::awaitable<size_t> QemuGuestAdditions::async_recv(uint8_t* data, size_t size) {
-	co_return co_await asio::async_read(*socket, asio::buffer(data, size), asio::use_awaitable);
-}
-
-void QemuGuestAdditions::send_raw(const uint8_t* data, size_t size) {
-	size_t n = coro::await(async_send(data, size));
+asio::awaitable<void> QemuGuestAdditions::send_raw(const uint8_t* data, size_t size) {
+	size_t n = co_await asio::async_write(*socket, asio::buffer(data, size), asio::use_awaitable);
 	if (n != size) {
 		throw std::runtime_error(__PRETTY_FUNCTION__);
 	}
 }
 
-void QemuGuestAdditions::recv_raw(uint8_t* data, size_t size) {
-	size_t n = coro::await(async_recv(data, size));
+asio::awaitable<void> QemuGuestAdditions::recv_raw(uint8_t* data, size_t size) {
+	size_t n = co_await asio::async_read(*socket, asio::buffer(data, size), asio::use_awaitable);
 	if (n != size) {
 		throw std::runtime_error(__PRETTY_FUNCTION__);
 	}

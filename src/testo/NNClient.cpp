@@ -4,7 +4,7 @@
 #include "Exceptions.hpp"
 #include "Utils.hpp"
 
-#include "coro_asio_bridge.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 #include <iostream>
 
 using namespace std::chrono_literals;

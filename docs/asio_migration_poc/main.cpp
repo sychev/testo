@@ -1,7 +1,7 @@
 // PoC: asio C++20 awaitable transport, вызванный из легаси coro-кода через мост.
 #include <asio.hpp>
 #include <coro/Application.h>
-#include "coro_asio_bridge.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 
 #include <cstdint>
 #include <future>
