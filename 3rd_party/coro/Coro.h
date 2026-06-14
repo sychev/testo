@@ -7,6 +7,7 @@
 #ifdef __GNUC__
 #include "coro/FiberLinux.h"
 #endif
+#include <exception>
 #include <functional>
 #include <string>
 #include <list>

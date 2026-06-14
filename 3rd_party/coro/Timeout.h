@@ -45,7 +45,7 @@ public:
 	/// Установить таймаут
 	template <typename Duration>
 	Timeout(Duration duration): _timer(IoService::current()->_impl) {
-		_timer.expires_from_now(duration);
+		_timer.expires_after(duration);
 		_timer.async_wait([=](const std::error_code& errorCode) {
 			_callbackExecuted = true;
 			if (_timerCanceled) {

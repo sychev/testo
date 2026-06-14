@@ -30,7 +30,21 @@ set(CPACK_OUTPUT_FILE_PREFIX "${CMAKE_BINARY_DIR}/out/pkg/")
 
 add_definitions(-DASIO_STANDALONE -DASIO_ENABLE_CANCELIO)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# asio 1.36.0 (standalone, header-only) подтягивается через FetchContent.
+# Этой версии нужны C++20-корутины (asio::awaitable / co_spawn / use_awaitable).
+# Каталог подключается через BEFORE, чтобы перекрыть вендоренный 3rd_party/asio.
+include(FetchContent)
+FetchContent_Declare(asio
+	URL https://github.com/chriskohlhoff/asio/archive/refs/tags/asio-1-36-0.tar.gz
+)
+FetchContent_GetProperties(asio)
+if(NOT asio_POPULATED)
+	FetchContent_Populate(asio)
+endif()
+include_directories(BEFORE ${asio_SOURCE_DIR}/asio/include)
 
 if(WIN32)
 	add_definitions(

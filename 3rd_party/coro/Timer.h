@@ -14,7 +14,7 @@ public:
 
 	template <typename Duration>
 	void waitFor(Duration duration) {
-		_handle.expires_from_now(duration);
+		_handle.expires_after(duration);
 		wait();
 	}
 

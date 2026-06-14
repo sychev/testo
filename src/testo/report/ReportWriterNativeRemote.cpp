@@ -1,5 +1,6 @@
 
 #include "ReportWriterNativeRemote.hpp"
+#include "../coro_asio_bridge.hpp"
 
 asio::ip::tcp::endpoint parse_tcp_endpoint(const std::string& endpoint);
 
@@ -17,7 +18,7 @@ void ReportWriterNativeRemote::launch_begin(const std::vector<std::shared_ptr<IR
 		tests_meta.push_back(to_json(test));
 	}
 
-	socket.connect(endpoint);
+	connect();
 	send({
 		{"type", "launch_begin"},
 		{"current_launch", current_launch_meta},
@@ -97,23 +98,39 @@ void ReportWriterNativeRemote::launch_end() {
 	wait_for_confirmation();
 }
 
-nlohmann::json ReportWriterNativeRemote::recv() {
-	uint32_t msg_size;
+asio::awaitable<void> ReportWriterNativeRemote::async_connect() {
+	socket.emplace(co_await asio::this_coro::executor);
+	co_await socket->async_connect(endpoint, asio::use_awaitable);
+}
 
-	socket.read((uint8_t*)&msg_size, 4);
+asio::awaitable<nlohmann::json> ReportWriterNativeRemote::async_recv() {
+	uint32_t msg_size = 0;
+	co_await asio::async_read(*socket, asio::buffer(&msg_size, 4), asio::use_awaitable);
 
 	std::vector<uint8_t> json_data;
 	json_data.resize(msg_size);
-	socket.read((uint8_t*)json_data.data(), json_data.size());
+	co_await asio::async_read(*socket, asio::buffer(json_data), asio::use_awaitable);
 
-	return nlohmann::json::from_cbor(json_data);
+	co_return nlohmann::json::from_cbor(json_data);
+}
+
+asio::awaitable<void> ReportWriterNativeRemote::async_send(nlohmann::json json) {
+	std::vector<uint8_t> json_data = nlohmann::json::to_cbor(json);
+	uint32_t json_size = (uint32_t)json_data.size();
+	co_await asio::async_write(*socket, asio::buffer(&json_size, sizeof(json_size)), asio::use_awaitable);
+	co_await asio::async_write(*socket, asio::buffer(json_data), asio::use_awaitable);
+}
+
+void ReportWriterNativeRemote::connect() {
+	coro::await(async_connect());
+}
+
+nlohmann::json ReportWriterNativeRemote::recv() {
+	return coro::await(async_recv());
 }
 
 void ReportWriterNativeRemote::send(const nlohmann::json& json) {
-	std::vector<uint8_t> json_data = nlohmann::json::to_cbor(json);
-	uint32_t json_size = (uint32_t)json_data.size();
-	socket.write((uint8_t*)&json_size, sizeof(json_size));
-	socket.write((uint8_t*)json_data.data(), json_size);
+	coro::await(async_send(json));
 }
 
 void ReportWriterNativeRemote::wait_for_confirmation() {
