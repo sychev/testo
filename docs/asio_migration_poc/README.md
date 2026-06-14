@@ -61,12 +61,38 @@ PoC OK: awaitable-транспорт отработал через coro-мост
 PoC OK: read прерван по coro::Timeout, asio-операция отменена через мост
 ```
 
-## Следующие шаги (Этап 2+)
+## Этап 2 (сделано)
 
-Снизу вверх перевести на `awaitable` остальной транспорт и таймеры
-(`QemuGuestAdditions`, `HyperVGuestAdditions`, `QemuVM`/`HyperVVM`, `NNClient`,
-`Configs`, `Utils`), затем интерфейс `ReportWriter`/`Reporter`, затем визиторы
-(`VisitorInterpreter*`, `CheckPoint` → `co_await asio::post`), и наконец
-`main.cpp` (`Application`/`CoroPool`/`SignalSet` → `io_context` + `co_spawn` +
-`cancellation_signal` + `asio::signal_set`). После этого мост и `coro` из
-сборки `testo` удаляются.
+Транспорт и простые таймеры переведены на `awaitable` через мост:
+
+- **Транспорт guest additions**: `QemuGuestAdditions` (Unix-сокет) и
+  `HyperVGuestAdditions` (vsock) — `connect`/`send_raw`/`recv_raw` теперь
+  `asio::awaitable` поверх `asio::*::socket`, наружу синхронные через мост.
+- **`ReportWriterNativeRemote`** — переведён ещё на этапе 1.
+- **Таймеры `coro::Timer`** заменены на `coro::sleep_for` (хелпер добавлен в
+  мост): `NNClient`, `VisitorInterpreterAction::visit_sleep`,
+  `VisitorInterpreterActionMachine` (член `timer`, 10 мест), `QemuVM::resume`,
+  `HyperVVM`.
+- **Чистка**: убраны неиспользуемые/вестигиальные `coro`-инклюды в `Configs`,
+  `Utils`, `QemuFlashDrive`.
+- **Правка под asio 1.36**: `asio::ip::address::from_string` → `make_address`
+  (`Utils.cpp`).
+
+Проверено: `Configs.cpp`, `Utils.cpp`, `NNClient.cpp` и транспортный паттерн
+(tcp/unix-сокет + `coro::sleep_for`) проходят компиляцию против asio 1.36
+(`-fsyntax-only`). Файлы с зависимостью от libvirt/Windows
+(`QemuVM`/`QemuGuestAdditions`/`HyperV*`/визиторы) переведены по проверенному
+паттерну, но локально не собирались (нет libvirt-dev / Windows SDK).
+
+`coro::Timeout` и `coro::CheckPoint` оставлены намеренно: они завязаны на
+ещё-синхронный код визиторов и переводятся на `||`-комбинаторы /
+`co_await asio::post` на следующих этапах, когда визиторы станут `awaitable`.
+
+## Следующие шаги (Этап 3+)
+
+Интерфейс `ReportWriter`/`Reporter` → `awaitable`, затем визиторы
+(`VisitorInterpreter*`, `CheckPoint` → `co_await asio::post`, `Timeout` → таймер
+в `||` с операцией), и наконец `main.cpp` (`Application`/`CoroPool`/`SignalSet`
+→ `io_context` + `co_spawn` + `cancellation_signal` + `asio::signal_set`),
+а также `Channel.hpp`/`NNClient`-сокет (общий с `nn_server` — согласовать
+отдельно). После этого мост и `coro` из сборки `testo` удаляются.

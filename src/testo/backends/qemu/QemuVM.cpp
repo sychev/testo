@@ -4,7 +4,7 @@
 #include "QemuGuestAdditions.hpp"
 #include "QemuEnvironment.hpp"
 
-#include <coro/Timer.h>
+#include "../../coro_asio_bridge.hpp"
 #include <coro/Timeout.h>
 
 #include <os/Process.hpp>
@@ -1897,7 +1897,6 @@ void QemuVM::suspend() {
 void QemuVM::resume() {
 	try {
 		coro::Timeout timeout(10s);
-		coro::Timer timer;
 		while (true) {
 			{
 				auto domain = qemu_connect.domain_lookup_by_name(id());
@@ -1908,7 +1907,7 @@ void QemuVM::resume() {
 				if (domain.state() == VIR_DOMAIN_RUNNING) {
 					return;
 				} else {
-					timer.waitFor(100ms);
+					coro::sleep_for(100ms);
 				}
 			}
 		}

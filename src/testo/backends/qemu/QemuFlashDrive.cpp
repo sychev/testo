@@ -1,6 +1,4 @@
 
-#include <coro/Timer.h>
-#include <coro/Timeout.h>
 #include <os/Process.hpp>
 #include <pugixml/pugixml.hpp>
 #include <guestfs/guestfs.hpp>

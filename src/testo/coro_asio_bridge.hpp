@@ -100,4 +100,24 @@ inline void await(asio::awaitable<void> awaitable) {
 	}
 }
 
+// Замена coro::Timer: кооперативная пауза на asio::steady_timer.
+// Прерывается отменой/таймаутом так же, как любой co_await через мост.
+template <typename Duration>
+void sleep_for(Duration duration) {
+	await([duration]() -> asio::awaitable<void> {
+		asio::steady_timer timer(co_await asio::this_coro::executor);
+		timer.expires_after(duration);
+		co_await timer.async_wait(asio::use_awaitable);
+	}());
+}
+
+template <typename TimePoint>
+void sleep_until(TimePoint time_point) {
+	await([time_point]() -> asio::awaitable<void> {
+		asio::steady_timer timer(co_await asio::this_coro::executor);
+		timer.expires_at(time_point);
+		co_await timer.async_wait(asio::use_awaitable);
+	}());
+}
+
 } // namespace coro

@@ -1,6 +1,7 @@
 
 #include <coro/CheckPoint.h>
 #include <coro/Timeout.h>
+#include "../coro_asio_bridge.hpp"
 #include "VisitorInterpreterActionMachine.hpp"
 #include "../NNClient.hpp"
 #include "../Exceptions.hpp"
@@ -252,7 +253,7 @@ void VisitorInterpreterActionMachine::visit_key_combination(const IR::KeyCombina
 	for (auto it = buttons.rbegin(); it != buttons.rend(); ++it) {
 		vmc->release(*it);
 	}
-	timer.waitFor(interval);
+	coro::sleep_for(interval);
 }
 
 void VisitorInterpreterActionMachine::execute_keyboard_commands(const std::vector<KeyboardCommand>& commands, std::chrono::milliseconds interval) {
@@ -261,7 +262,7 @@ void VisitorInterpreterActionMachine::execute_keyboard_commands(const std::vecto
 			if ((commands[i-1].action == KeyboardAction::Release) &&
 				(commands[i].action == KeyboardAction::Hold))
 			{
-				timer.waitFor(interval);
+				coro::sleep_for(interval);
 			}
 		}
 		switch (commands[i].action) {
@@ -276,7 +277,7 @@ void VisitorInterpreterActionMachine::execute_keyboard_commands(const std::vecto
 		}
 	}
 	if (commands.size()) {
-		timer.waitFor(interval);
+		coro::sleep_for(interval);
 	}
 }
 
@@ -684,7 +685,7 @@ void VisitorInterpreterActionMachine::visit_mouse_move_click(const IR::MouseMove
 
 		auto mouse_press = [&](MouseButton button) {
 			vmc->mouse_hold(button);
-			timer.waitFor(std::chrono::milliseconds(60));
+			coro::sleep_for(std::chrono::milliseconds(60));
 			vmc->mouse_release();
 		};
 
@@ -696,7 +697,7 @@ void VisitorInterpreterActionMachine::visit_mouse_move_click(const IR::MouseMove
 			mouse_press(MouseButton::Middle);
 		} else if (mouse_move_click.event_type() == "dclick") {
 			mouse_press(MouseButton::Left);
-			timer.waitFor(std::chrono::milliseconds(60));
+			coro::sleep_for(std::chrono::milliseconds(60));
 			mouse_press(MouseButton::Left);
 		} else {
 			throw std::runtime_error("Unsupported click type");
@@ -744,7 +745,7 @@ void VisitorInterpreterActionMachine::visit_mouse_wheel(const IR::MouseWheel& mo
 
 		auto mouse_press = [&](MouseButton button) {
 			vmc->mouse_hold(button);
-			timer.waitFor(std::chrono::milliseconds(60));
+			coro::sleep_for(std::chrono::milliseconds(60));
 			vmc->mouse_release();
 		};
 
@@ -891,7 +892,7 @@ void VisitorInterpreterActionMachine::visit_unplug_dvd(const IR::PlugDVD& plug_d
 		if (!vmc->vm()->is_dvd_plugged()) {
 			return;
 		}
-		timer.waitFor(std::chrono::milliseconds(300));
+		coro::sleep_for(std::chrono::milliseconds(300));
 	}
 
 	throw std::runtime_error(fmt::format("Timeout expired for unplugging dvd"));
@@ -957,7 +958,7 @@ void VisitorInterpreterActionMachine::visit_start(const IR::Start& start) {
 			if (vmc->vm()->state() == VmState::Running) {
 				return;
 			}
-			timer.waitFor(std::chrono::milliseconds(300));
+			coro::sleep_for(std::chrono::milliseconds(300));
 		}
 		throw std::runtime_error("Start timeout");
 	} catch (const std::exception& error) {
@@ -987,7 +988,7 @@ void VisitorInterpreterActionMachine::visit_shutdown(const IR::Shutdown& shutdow
 			if (vmc->vm()->state() == VmState::Stopped) {
 				return;
 			}
-			timer.waitFor(std::chrono::milliseconds(300));
+			coro::sleep_for(std::chrono::milliseconds(300));
 		}
 		throw std::runtime_error("Shutdown timeout");
 	} catch (const std::exception& error) {
@@ -1126,7 +1127,7 @@ bool VisitorInterpreterActionMachine::screenshot_loop(Func&& func, std::chrono::
 
 		auto end = std::chrono::high_resolution_clock::now();
 		if (interval > end - start) {
-			timer.waitFor(interval - (end - start));
+			coro::sleep_for(interval - (end - start));
 		} else {
 			coro::CheckPoint();
 		}

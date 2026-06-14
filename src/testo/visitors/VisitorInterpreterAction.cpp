@@ -1,5 +1,5 @@
 
-#include <coro/Timer.h>
+#include "../coro_asio_bridge.hpp"
 #include "VisitorInterpreterAction.hpp"
 #include "../Exceptions.hpp"
 #include "../IR/Program.hpp"
@@ -105,8 +105,7 @@ void VisitorInterpreterAction::visit_bug(const IR::Bug& bug) {
 void VisitorInterpreterAction::visit_sleep(const IR::Sleep& sleep) {
 	TRACE();
 	reporter.sleep(current_controller, sleep);
-	coro::Timer timer;
-	timer.waitFor(sleep.timeout().value());
+	coro::sleep_for(sleep.timeout().value());
 }
 
 void VisitorInterpreterAction::visit_macro_call(const IR::MacroCall& macro_call) {

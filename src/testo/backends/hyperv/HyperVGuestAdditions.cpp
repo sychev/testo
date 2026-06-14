@@ -1,5 +1,6 @@
 
 #include "HyperVGuestAdditions.hpp"
+#include "../../coro_asio_bridge.hpp"
 
 #define HYPERV_PORT 1234
 DEFINE_GUID(service_id, HYPERV_PORT, 0xfacb, 0x11e6, 0xbd, 0x58, 0x64, 0x00, 0x6a, 0x79, 0x86, 0xd3);
@@ -30,18 +31,31 @@ std::string GuidToString(GUID guid)
 HyperVGuestAdditions::HyperVGuestAdditions(hyperv::Machine& machine) {
 	std::string guid_str = machine.guid();
 	GUID vm_id = StringToGuid(guid_str);
-	socket.connect(hyperv::VSocketEndpoint(service_id, vm_id));
+	coro::await(async_connect(hyperv::VSocketEndpoint(service_id, vm_id)));
+}
+
+asio::awaitable<void> HyperVGuestAdditions::async_connect(const hyperv::VSocketEndpoint& endpoint) {
+	socket.emplace(co_await asio::this_coro::executor);
+	co_await socket->async_connect(endpoint, asio::use_awaitable);
+}
+
+asio::awaitable<size_t> HyperVGuestAdditions::async_send(const uint8_t* data, size_t size) {
+	co_return co_await asio::async_write(*socket, asio::buffer(data, size), asio::use_awaitable);
+}
+
+asio::awaitable<size_t> HyperVGuestAdditions::async_recv(uint8_t* data, size_t size) {
+	co_return co_await asio::async_read(*socket, asio::buffer(data, size), asio::use_awaitable);
 }
 
 void HyperVGuestAdditions::send_raw(const uint8_t* data, size_t size) {
-	size_t n = socket.write(data, size);
+	size_t n = coro::await(async_send(data, size));
 	if (n != size) {
 		throw std::runtime_error(__PRETTY_FUNCTION__);
 	}
 }
 
 void HyperVGuestAdditions::recv_raw(uint8_t* data, size_t size) {
-	size_t n = socket.read(data, size);
+	size_t n = coro::await(async_recv(data, size));
 	if (n != size) {
 		throw std::runtime_error(__PRETTY_FUNCTION__);
 	}
