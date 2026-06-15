@@ -1,5 +1,6 @@
 
 #include "ReportWriterNativeRemote.hpp"
+#include <testo_guest_additions_protocol/coro_asio_bridge.hpp>
 #include "Reporter.hpp"
 #include <rang.hpp>
 #include <fmt/format.h>
@@ -52,7 +53,7 @@ void Reporter::init(const std::vector<std::shared_ptr<IR::Test>>& _tests, const 
 
 	start_timestamp = std::chrono::system_clock::now();
 
-	report_writer->launch_begin(_tests, _tests_runs);
+	coro::await(report_writer->launch_begin(_tests, _tests_runs));
 
 	for (auto test_run: _tests_runs) {
 		tests_runs.push_back(test_run);
@@ -82,14 +83,14 @@ void Reporter::finish() {
 	TRACE();
 
 	print_statistics();
-	report_writer->launch_end();
+	coro::await(report_writer->launch_end());
 }
 
 void Reporter::prepare_environment() {
 	current_test_run = tests_runs.at(current_test_run_index);
 	current_test_run->start_timestamp = std::chrono::system_clock::now();
 
-	report_writer->test_begin(current_test_run);
+	coro::await(report_writer->test_begin(current_test_run));
 
 	report_prefix(blue);
 	report(fmt::format("Preparing the environment for test "), blue);
@@ -119,7 +120,7 @@ void Reporter::skip_test() {
 	current_test_run = tests_runs.at(current_test_run_index);
 	current_test_run->exec_status = IR::TestRun::ExecStatus::Skipped;
 
-	report_writer->test_skip_begin(current_test_run);
+	coro::await(report_writer->test_skip_begin(current_test_run));
 
 	std::set<std::string> names = current_test_run->get_unsuccessful_parents_names();
 	std::string singular = "parent";
@@ -149,7 +150,7 @@ void Reporter::skip_test() {
 		}
 	}
 
-	report_writer->test_skip_end(current_test_run);
+	coro::await(report_writer->test_skip_end(current_test_run));
 
 	current_test_run = nullptr;
 	++current_test_run_index;
@@ -164,7 +165,7 @@ void Reporter::test_passed() {
 	report(current_test_run->test->name(), yellow, true);
 	report(fmt::format(" PASSED in {}\n", duration_to_str(current_test_run->duration())), green, true);
 
-	report_writer->test_end(current_test_run);
+	coro::await(report_writer->test_end(current_test_run));
 
 	current_test_run = nullptr;
 	++current_test_run_index;
@@ -184,7 +185,7 @@ void Reporter::test_failed(const std::string& message, const std::string& stackt
 	report(current_test_run->test->name(), yellow, true);
 	report(fmt::format(" FAILED in {}\n", duration_to_str(current_test_run->duration())), red, true);
 
-	report_writer->test_end(current_test_run);
+	coro::await(report_writer->test_end(current_test_run));
 
 	current_test_run = nullptr;
 	++current_test_run_index;
@@ -297,7 +298,7 @@ void Reporter::abort(std::shared_ptr<IR::Controller> controller, const IR::Abort
 	report(fmt::format("Aborting with a message: {}\n", action.message()), blue);
 	if (std::shared_ptr<IR::Machine> vmc = std::dynamic_pointer_cast<IR::Machine>(controller)) {
 		if (vmc->vm()->state() == VmState::Running) {
-			report_writer->report_screenshot(current_test_run, vmc->make_new_screenshot(), "abort");
+			coro::await(report_writer->report_screenshot(current_test_run, vmc->make_new_screenshot(), "abort"));
 		}
 	}
 }
@@ -309,7 +310,7 @@ void Reporter::bug(std::shared_ptr<IR::Controller> controller, const IR::Bug& ac
 	report(fmt::format("{}\n", action.bug_id()), yellow);
 	if (std::shared_ptr<IR::Machine> vmc = std::dynamic_pointer_cast<IR::Machine>(controller)) {
 		if (vmc->vm()->state() == VmState::Running) {
-			report_writer->report_screenshot(current_test_run, vmc->make_new_screenshot(), "bug " + action.bug_id());
+			coro::await(report_writer->report_screenshot(current_test_run, vmc->make_new_screenshot(), "bug " + action.bug_id()));
 		}
 	}
 }
@@ -578,7 +579,7 @@ void Reporter::timeout(std::shared_ptr<IR::Machine> vmc, const stb::Image<stb::R
 	report_prefix(blue);
 	report(fmt::format("Saved screenshot from vm "), blue);
 	report(fmt::format("{}\n", vmc->name()), yellow);
-	report_writer->report_screenshot(current_test_run, screenshot, "timeout");
+	coro::await(report_writer->report_screenshot(current_test_run, screenshot, "timeout"));
 }
 
 std::string newline_to_br(const std::string& str) {
@@ -599,17 +600,17 @@ std::string newline_to_br(const std::string& str) {
 
 void Reporter::report(const std::string& message, style color, bool is_bold) {
 	print(message, color, is_bold);
-	report_writer->report(current_test_run, message);
+	coro::await(report_writer->report(current_test_run, message));
 }
 
 void Reporter::report_raw(const std::string& message, style color, bool is_bold) {
 	print(message, color, is_bold);
-	report_writer->report_raw(current_test_run, message);
+	coro::await(report_writer->report_raw(current_test_run, message));
 }
 
 void Reporter::report_prefix(style color, bool is_bold) {
 	print(fmt::format("{} ", progress()), color, is_bold);
-	report_writer->report_prefix(current_test_run);
+	coro::await(report_writer->report_prefix(current_test_run));
 }
 
 void Reporter::print_html(const std::string& message, style color, bool is_bold) {

@@ -69,7 +69,7 @@ ReportWriterNative::ReportWriterNative(const ReportConfig& config): ReportWriter
 	config.dump(current_launch_meta["config"]);
 }
 
-void ReportWriterNative::launch_begin(const std::vector<std::shared_ptr<IR::Test>>& tests,
+asio::awaitable<void> ReportWriterNative::launch_begin(const std::vector<std::shared_ptr<IR::Test>>& tests,
 	const std::vector<std::shared_ptr<IR::TestRun>>& tests_runs)
 {
 	current_launch_meta["start_timestamp"] = now();
@@ -84,36 +84,42 @@ void ReportWriterNative::launch_begin(const std::vector<std::shared_ptr<IR::Test
 			current_launch_meta["up_to_date_tests"].push_back(test->name());
 		}
 	}
+	co_return;
 }
 
-void ReportWriterNative::test_skip_begin(const std::shared_ptr<IR::TestRun>& test_run) {
+asio::awaitable<void> ReportWriterNative::test_skip_begin(const std::shared_ptr<IR::TestRun>& test_run) {
 	current_launch_meta["skipped_tests"].push_back(test_run->test->name());
+	co_return;
 }
 
-void ReportWriterNative::test_skip_end(const std::shared_ptr<IR::TestRun>& test_run) {
+asio::awaitable<void> ReportWriterNative::test_skip_end(const std::shared_ptr<IR::TestRun>& test_run) {
+	co_return;
 }
 
-void ReportWriterNative::test_begin(const std::shared_ptr<IR::TestRun>& test_run) {
+asio::awaitable<void> ReportWriterNative::test_begin(const std::shared_ptr<IR::TestRun>& test_run) {
 	current_launch_meta["executed_tests"].push_back(test_run->test->name());
+	co_return;
 }
 
-void ReportWriterNative::report_prefix(const std::shared_ptr<IR::TestRun>& test_run) {
+asio::awaitable<void> ReportWriterNative::report_prefix(const std::shared_ptr<IR::TestRun>& test_run) {
 	if (test_run) {
-		report(test_run, fmt::format("[{}] ", test_run->test->name()));
+		co_await report(test_run, fmt::format("[{}] ", test_run->test->name()));
 	} else {
-		report(test_run, fmt::format(">>> "));
+		co_await report(test_run, fmt::format(">>> "));
 	}
 }
 
-void ReportWriterNative::report_raw(const std::shared_ptr<IR::TestRun>& test_run, const std::string& text) {
-	report(test_run, text);
+asio::awaitable<void> ReportWriterNative::report_raw(const std::shared_ptr<IR::TestRun>& test_run, const std::string& text) {
+	co_await report(test_run, text);
 }
 
-void ReportWriterNative::test_end(const std::shared_ptr<IR::TestRun>& test_run) {
+asio::awaitable<void> ReportWriterNative::test_end(const std::shared_ptr<IR::TestRun>& test_run) {
+	co_return;
 }
 
-void ReportWriterNative::launch_end() {
+asio::awaitable<void> ReportWriterNative::launch_end() {
 	current_launch_meta["stop_timestamp"] = now();
+	co_return;
 }
 
 nlohmann::json ReportWriterNative::to_json(const std::shared_ptr<IR::Test>& test) {

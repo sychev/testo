@@ -114,12 +114,33 @@ PoC OK: read прерван по coro::Timeout, asio-операция отмен
 `GuestAdditions.cpp` + guest `CLI.cpp` проходят `-fsyntax-only` под C++20/asio
 1.36; PoC-harness (round-trip + отмена) собирается и проходит.
 
-## Следующие шаги (Этап 4+)
+## Этап 4 (сделано) — слой отчётов `ReportWriter` на awaitable
 
-Поднять границу awaitable выше моста: VM-методы (`QemuVM`/`HyperVVM`,
-`VM.hpp`) → `awaitable`, затем `ReportWriter`/`Reporter` и визиторы
-(`VisitorInterpreter*`, `CheckPoint` → `co_await asio::post`, `coro::Timeout` →
-`coro::with_timeout`), и наконец `main.cpp` (`Application`/`CoroPool`/`SignalSet`
-→ `io_context` + `co_spawn` + `cancellation_signal` + `asio::signal_set`), плюс
-`Channel.hpp`/`NNClient`-сокет (общий с `nn_server`). После этого мост и `coro`
-из сборки `testo`/`testo_guest_additions` удаляются.
+Вся иерархия `ReportWriter` переведена на `asio::awaitable` + `co_await`:
+- `ReportWriter` (база), `ReportWriterNative`, `ReportWriterNativeLocal`,
+  `ReportWriterAllure`, `ReportWriterNativeRemote` — все виртуальные методы
+  (`launch_begin`/`report`/`report_screenshot`/`test_*`/`launch_end` …) теперь
+  `awaitable`; внутренние кросс-вызовы (`report_prefix`→`report`, подкласс→база)
+  идут через `co_await`.
+- `ReportWriterNativeRemote` больше не бриджует внутри — транспорт целиком на
+  `co_await`.
+- **`Reporter` стал границей моста**: его публичный интерфейс остался
+  синхронным, а 13 вызовов `report_writer->…` обёрнуты в `coro::await(...)`.
+  Благодаря этому 57 вызовов `reporter.*` в визиторах **не тронуты** (никакого
+  временного churn).
+- Обойдён ICE GCC 13 на `co_await send({brace-init json})` — JSON выносится в
+  именованную переменную перед `co_await` (clang компилировал и так).
+
+Проверено: **все 51 .cpp `testo_core`** проходят `-fsyntax-only` под GCC 13
+(C++20/asio 1.36), 0 ошибок; слой отчётов компилируется и на clang 18.
+
+## Следующие шаги (Этап 5+)
+
+Поднять границу моста ещё выше: VM-методы, использующие GuestAdditions
+(`QemuVM::make_snapshot/rollback` и т.п.) → `awaitable`; затем визиторы
+(`VisitorInterpreter*`) — `co_await` для ga/reporter/VM, `CheckPoint` →
+`co_await asio::post`, `coro::Timeout` → `coro::with_timeout`; затем `Reporter`
+делается `awaitable` (57 вызовов переключаются с `coro::await` на `co_await`); и
+наконец `main.cpp` (`Application`/`CoroPool`/`SignalSet` → `io_context` +
+`co_spawn` + `cancellation_signal` + `asio::signal_set`), плюс `Channel.hpp`/
+`NNClient`-сокет. После этого мост и `coro` из сборки удаляются.

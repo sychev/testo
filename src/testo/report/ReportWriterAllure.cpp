@@ -163,7 +163,7 @@ ReportWriterAllure::ReportWriterAllure(const ReportConfig& config): ReportWriter
 	report_folder = config.report_folder;
 }
 
-void ReportWriterAllure::launch_begin(const std::vector<std::shared_ptr<IR::Test>>& tests,
+asio::awaitable<void> ReportWriterAllure::launch_begin(const std::vector<std::shared_ptr<IR::Test>>& tests,
 	const std::vector<std::shared_ptr<IR::TestRun>>& tests_runs)
 {
 	fs::create_directories(report_folder);
@@ -183,13 +183,14 @@ void ReportWriterAllure::launch_begin(const std::vector<std::shared_ptr<IR::Test
 			testsuite.testcases.push_back(testcase);
 		}
 	}
+	co_return;
 }
 
-void ReportWriterAllure::test_skip_begin(const std::shared_ptr<IR::TestRun>& test_run) {
-	test_begin(test_run);
+asio::awaitable<void> ReportWriterAllure::test_skip_begin(const std::shared_ptr<IR::TestRun>& test_run) {
+	co_await test_begin(test_run);
 }
 
-void ReportWriterAllure::test_skip_end(const std::shared_ptr<IR::TestRun>& test_run) {
+asio::awaitable<void> ReportWriterAllure::test_skip_end(const std::shared_ptr<IR::TestRun>& test_run) {
 	current_testcase.stop = std::chrono::system_clock::now();
 	current_testcase.status = "skipped";
 	current_testcase.failure.message = "Some of the parent tests has failed";
@@ -202,14 +203,16 @@ void ReportWriterAllure::test_skip_end(const std::shared_ptr<IR::TestRun>& test_
 
 	TestSuite& testsuite = testsuites[test_run->test->get_source_file_path().parent_path()];
 	testsuite.testcases.push_back(current_testcase);
+	co_return;
 }
 
-void ReportWriterAllure::test_begin(const std::shared_ptr<IR::TestRun>& test_run) {
+asio::awaitable<void> ReportWriterAllure::test_begin(const std::shared_ptr<IR::TestRun>& test_run) {
 	current_testcase = TestCase(test_run->test);
 	current_testcase.start = std::chrono::system_clock::now();
+	co_return;
 }
 
-void ReportWriterAllure::report_prefix(const std::shared_ptr<IR::TestRun>& test_run) {
+asio::awaitable<void> ReportWriterAllure::report_prefix(const std::shared_ptr<IR::TestRun>& test_run) {
 	if (current_testcase.steps.size()) {
 		current_testcase.steps.back().status = "passed";
 		current_testcase.steps.back().stop = std::chrono::system_clock::now();
@@ -220,27 +223,31 @@ void ReportWriterAllure::report_prefix(const std::shared_ptr<IR::TestRun>& test_
 	Step step;
 	step.start = std::chrono::system_clock::now();
 	current_testcase.steps.push_back(step);
+	co_return;
 }
 
-void ReportWriterAllure::report(const std::shared_ptr<IR::TestRun>& test_run, const std::string& text) {
+asio::awaitable<void> ReportWriterAllure::report(const std::shared_ptr<IR::TestRun>& test_run, const std::string& text) {
 	if (current_testcase.steps.size()) {
 		current_testcase.steps.back().title += text;
 	}
+	co_return;
 }
 
-void ReportWriterAllure::report_raw(const std::shared_ptr<IR::TestRun>& test_run, const std::string& text) {
+asio::awaitable<void> ReportWriterAllure::report_raw(const std::shared_ptr<IR::TestRun>& test_run, const std::string& text) {
 	if (current_testcase.steps.size()) {
 		current_testcase.steps.back().raw += text;
 	}
+	co_return;
 }
 
-void ReportWriterAllure::report_screenshot(const std::shared_ptr<IR::TestRun>& test_run, const stb::Image<stb::RGB>& screenshot, const std::string& tag) {
+asio::awaitable<void> ReportWriterAllure::report_screenshot(const std::shared_ptr<IR::TestRun>& test_run, const stb::Image<stb::RGB>& screenshot, const std::string& tag) {
 	if (current_testcase.steps.size()) {
 		current_testcase.steps.back().attachments.push_back(Attachment(report_folder, screenshot, tag));
 	}
+	co_return;
 }
 
-void ReportWriterAllure::test_end(const std::shared_ptr<IR::TestRun>& test_run) {
+asio::awaitable<void> ReportWriterAllure::test_end(const std::shared_ptr<IR::TestRun>& test_run) {
 	current_testcase.stop = std::chrono::system_clock::now();
 	switch (test_run->exec_status) {
 		case IR::TestRun::ExecStatus::Passed:
@@ -281,6 +288,7 @@ void ReportWriterAllure::test_end(const std::shared_ptr<IR::TestRun>& test_run) 
 	}
 	TestSuite& testsuite = testsuites[test_run->test->get_source_file_path().parent_path()];
 	testsuite.testcases.push_back(current_testcase);
+	co_return;
 }
 
 fs::path build_most_common_dir(fs::path a, fs::path b) {
@@ -307,9 +315,9 @@ std::string build_testuite_name(const fs::path& path) {
 	return result;
 }
 
-void ReportWriterAllure::launch_end() {
+asio::awaitable<void> ReportWriterAllure::launch_end() {
 	if (testsuites.size() == 0) {
-		return;
+		co_return;
 	}
 	fs::path top_dir = testsuites.begin()->first;
 	for (auto& kv: testsuites) {

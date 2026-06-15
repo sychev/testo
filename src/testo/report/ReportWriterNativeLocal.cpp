@@ -8,10 +8,10 @@ ReportWriterNativeLocal::ReportWriterNativeLocal(const ReportConfig& config): Re
 
 const std::string tag_file = ".testo_report_folder";
 
-void ReportWriterNativeLocal::launch_begin(const std::vector<std::shared_ptr<IR::Test>>& tests,
+asio::awaitable<void> ReportWriterNativeLocal::launch_begin(const std::vector<std::shared_ptr<IR::Test>>& tests,
 	const std::vector<std::shared_ptr<IR::TestRun>>& tests_runs)
 {
-	ReportWriterNative::launch_begin(tests, tests_runs);
+	co_await ReportWriterNative::launch_begin(tests, tests_runs);
 
 	if (fs::exists(report_folder)) {
 		if (!fs::is_directory(report_folder)) {
@@ -32,34 +32,36 @@ void ReportWriterNativeLocal::launch_begin(const std::vector<std::shared_ptr<IR:
 	}
 }
 
-void ReportWriterNativeLocal::test_begin(const std::shared_ptr<IR::TestRun>& test_run) {
-	ReportWriterNative::test_begin(test_run);
+asio::awaitable<void> ReportWriterNativeLocal::test_begin(const std::shared_ptr<IR::TestRun>& test_run) {
+	co_await ReportWriterNative::test_begin(test_run);
 	fs::create_directories(report_folder / "tests_runs" / test_run->id);
 	current_test_run_output_file = std::ofstream(report_folder / "tests_runs" / test_run->id / "log.txt");
 }
 
-void ReportWriterNativeLocal::report(const std::shared_ptr<IR::TestRun>& test_run, const std::string& text) {
+asio::awaitable<void> ReportWriterNativeLocal::report(const std::shared_ptr<IR::TestRun>& test_run, const std::string& text) {
 	if (test_run) {
 		current_test_run_output_file << text;
 	} else {
 		current_launch_output_file << text;
 	}
+	co_return;
 }
 
-void ReportWriterNativeLocal::report_screenshot(const std::shared_ptr<IR::TestRun>& test_run, const stb::Image<stb::RGB>& screenshot, const std::string& tag) {
+asio::awaitable<void> ReportWriterNativeLocal::report_screenshot(const std::shared_ptr<IR::TestRun>& test_run, const stb::Image<stb::RGB>& screenshot, const std::string& tag) {
 	const std::string name = "screenshot " + tag + ".png";
 	screenshot.write_png((report_folder / "tests_runs" / test_run->id / name).generic_string());
+	co_return;
 }
 
-void ReportWriterNativeLocal::test_end(const std::shared_ptr<IR::TestRun>& test_run) {
-	ReportWriterNative::test_end(test_run);
+asio::awaitable<void> ReportWriterNativeLocal::test_end(const std::shared_ptr<IR::TestRun>& test_run) {
+	co_await ReportWriterNative::test_end(test_run);
 	current_test_run_output_file.close();
 	std::ofstream file(report_folder / "tests_runs" / test_run->id / "meta.json");
 	file << to_json(test_run).dump(2);
 }
 
-void ReportWriterNativeLocal::launch_end() {
-	ReportWriterNative::launch_end();
+asio::awaitable<void> ReportWriterNativeLocal::launch_end() {
+	co_await ReportWriterNative::launch_end();
 	auto path = fs::absolute(report_folder / "launches" / current_launch_meta.at("id").get<std::string>() / "meta.json");
 	std::ofstream file(path);
 	file << current_launch_meta.dump(2);
