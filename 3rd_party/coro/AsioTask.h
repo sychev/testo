@@ -1,100 +1,102 @@
 
 #pragma once
 
-
 #include <asio.hpp>
 #include "coro/Coro.h"
-
+#include <system_error>
+#include <tuple>
+#include <cassert>
 
 namespace coro {
 
-/// Базовый класс асинхронной операции
-class AsioTask {
-protected:
-	/*!
-		@brief Дожидается завершения асинхронной операции
+namespace detail {
 
-		Если во время ожидания в корутину бросается исключение, то асинхронная операция отменяется
-	*/
-	template <typename Handle>
-	void doWait(Handle& handle) {
+/*!
+	@brief Ожидание завершения асинхронной операции asio внутри корутины
+
+	Заменяет прежний AsioTask со строковыми токенами и std::function-callback'ами. Операция
+	инициируется handler'ом, к которому привязан cancellation_slot — поэтому при инъекции
+	исключения в корутину (таймаут / cancel) ожидание отменяется адресной отменой именно этой
+	операции (cancellation_type::terminal), а не cancel() всего хэндла.
+
+	AsyncOp размещается на стеке корутины, поэтому handler может безопасно держать на него
+	указатель: на пути отмены мы дожидаемся фактического вызова handler'а перед возвратом.
+*/
+template <typename... Results>
+class AsyncOp {
+public:
+	/// Completion handler для передачи в инициирующую функцию asio
+	auto handler() {
+		return asio::bind_cancellation_slot(_signal.slot(),
+			[this](const std::error_code& errorCode, Results... results) {
+				_finished = true;
+				_errorCode = errorCode;
+				_results = std::tuple<Results...>(std::move(results)...);
+				_coro->wake(this);
+			});
+	}
+
+	/// Дождаться завершения операции, транслируя исключения корутины в отмену операции
+	void wait() {
 		try {
-			_coro->yield({token(), TokenThrow});
+			_coro->suspend(this, /* interruptible = */ true);
 		}
 		catch (...) {
 			auto exception = std::current_exception();
-			handle.cancel();
-			_coro->yield({token()});
-			assert(_isCallbackExecuted);
-
+			_signal.emit(asio::cancellation_type::terminal);
+			// Дожидаемся фактического завершения операции, чтобы handler не обратился к уже
+			// уничтоженному AsyncOp. На этом ожидании исключения не принимаем.
+			_coro->suspend(this, /* interruptible = */ false);
+			assert(_finished);
 			// не используйте здесь throw, gcc это не переваривает
 			std::rethrow_exception(exception);
 		}
+
+		if (_errorCode) {
+			throw std::system_error(_errorCode);
+		}
 	}
 
-	std::string token() const {
-		return "AsioTask " + std::to_string((uint64_t)this);
+	template <std::size_t I>
+	auto&& result() {
+		return std::get<I>(std::move(_results));
 	}
 
+private:
 	Coro* _coro = Coro::current();
-	bool _isCallbackExecuted = false;
-};
-
-/// Асинхронная операция без возвращаемого значения
-class AsioTask1: public AsioTask {
-public:
-	/// Передайте этот callback в asio
-	std::function<void(const std::error_code&)> callback() {
-		return [=](const std::error_code& errorCode) {
-			_isCallbackExecuted = true;
-			_errorCode = errorCode;
-			_coro->resume(token());
-		};
-	}
-
-	/// @see AsioTask::doWait
-	template <typename Handle>
-	void wait(Handle& handle) {
-		doWait(handle);
-
-		if (_errorCode) {
-			throw std::system_error(_errorCode);
-		}
-	}
-
-private:
+	asio::cancellation_signal _signal;
 	std::error_code _errorCode;
+	std::tuple<Results...> _results;
+	bool _finished = false;
 };
 
-/// Асинхронная операция c одним возвращаемым значением
-template <typename Result>
-class AsioTask2: public AsioTask {
-public:
-	/// Передайте этот callback в asio
-	std::function<void(const std::error_code&, Result)> callback() {
-		return [=](const std::error_code& errorCode, Result result) {
-			_isCallbackExecuted = true;
-			_errorCode = errorCode;
-			_result = result;
-			_coro->resume(token());
-		};
-	}
+} // namespace detail
 
-	/// @see AsioTask::doWait
-	template <typename Handle>
-	Result wait(Handle& handle) {
-		doWait(handle);
+/*!
+	@brief Инициировать асинхронную операцию asio без возвращаемого значения и дождаться её
 
-		if (_errorCode) {
-			throw std::system_error(_errorCode);
-		}
+	@param initiate вызываемый объект, принимающий completion handler и стартующий операцию,
+	                handler имеет сигнатуру (const std::error_code&)
+*/
+template <typename Initiate>
+void awaitOp(Initiate&& initiate) {
+	detail::AsyncOp<> op;
+	initiate(op.handler());
+	op.wait();
+}
 
-		return _result;
-	}
+/*!
+	@brief Инициировать асинхронную операцию asio с одним возвращаемым значением и дождаться её
 
-private:
-	std::error_code _errorCode;
-	Result _result;
-};
+	@param initiate вызываемый объект, принимающий completion handler и стартующий операцию,
+	                handler имеет сигнатуру (const std::error_code&, Result)
+*/
+template <typename Result, typename Initiate>
+Result awaitValue(Initiate&& initiate) {
+	detail::AsyncOp<Result> op;
+	initiate(op.handler());
+	op.wait();
+	return op.template result<0>();
+}
 
 }

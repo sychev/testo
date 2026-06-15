@@ -13,9 +13,9 @@ SignalSet::SignalSet(const std::initializer_list<int32_t>& signals)
 }
 
 int32_t SignalSet::wait() {
-	AsioTask2<int32_t> task;
-	_handle.async_wait(task.callback());
-	return task.wait(_handle);
+	return awaitValue<int>([&](auto&& handler) {
+		_handle.async_wait(std::forward<decltype(handler)>(handler));
+	});
 }
 
 }

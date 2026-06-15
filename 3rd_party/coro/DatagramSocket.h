@@ -30,16 +30,16 @@ public:
 
 	template <typename T>
 	size_t send(const T& t, const typename Protocol::endpoint& endpoint) {
-		AsioTask2<size_t> task;
-		_handle.async_send_to(t, endpoint, task.callback());
-		return task.wait(_handle);
+		return awaitValue<size_t>([&](auto&& handler) {
+			_handle.async_send_to(t, endpoint, std::forward<decltype(handler)>(handler));
+		});
 	}
 
 	template <typename T>
 	size_t receive(const T& t, typename Protocol::endpoint& endpoint) {
-		AsioTask2<size_t> task;
-		_handle.async_receive_from(t, endpoint, task.callback());
-		return task.wait(_handle);
+		return awaitValue<size_t>([&](auto&& handler) {
+			_handle.async_receive_from(t, endpoint, std::forward<decltype(handler)>(handler));
+		});
 	}
 
 	const typename Protocol::socket& handle() const {

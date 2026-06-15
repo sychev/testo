@@ -14,7 +14,7 @@ public:
 
 	template <typename Duration>
 	void waitFor(Duration duration) {
-		_handle.expires_from_now(duration);
+		_handle.expires_after(duration);
 		wait();
 	}
 
@@ -26,9 +26,9 @@ public:
 
 private:
 	void wait() {
-		AsioTask1 task;
-		_handle.async_wait(task.callback());
-		task.wait(_handle);
+		awaitOp([&](auto&& handler) {
+			_handle.async_wait(std::forward<decltype(handler)>(handler));
+		});
 	}
 
 	asio::steady_timer _handle;

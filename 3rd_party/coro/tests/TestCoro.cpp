@@ -32,7 +32,7 @@ TEST_CASE("Cancellation", "[Coro]") {
 	bool success = false;
 	Coro coro([&] {
 		try {
-			Coro::current()->yield({TokenThrow});
+			Coro::current()->suspend(nullptr);
 		}
 		catch (const CancelError&) {
 			success = true;
@@ -48,7 +48,7 @@ TEST_CASE("Throw an exception into a coro", "[Coro]") {
 	bool success = false;
 	Coro coro([&] {
 		try {
-			Coro::current()->yield({TokenThrow});
+			Coro::current()->suspend(nullptr);
 		}
 		catch (...) {
 			success = true;

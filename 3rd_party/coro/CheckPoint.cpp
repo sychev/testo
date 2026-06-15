@@ -7,13 +7,14 @@ namespace coro {
 
 void CheckPoint() {
 	auto coro = Coro::current();
-	std::string CheckPointToken = "CheckPoint " + std::to_string((uint64_t)coro);
-	IoService::current()->post([=] {
-		IoService::current()->checkpoints.push([=] {
-			coro->resume(CheckPointToken);
+	IoService::current()->post([coro] {
+		IoService::current()->checkpoints.push([coro] {
+			coro->wake(coro);
 		});
 	});
-	coro->yield({CheckPointToken, TokenThrow});
+	// Токеном выступает адрес самой корутины: в каждый момент времени активна не более одной
+	// контрольной точки на корутину.
+	coro->suspend(coro);
 }
 
 }

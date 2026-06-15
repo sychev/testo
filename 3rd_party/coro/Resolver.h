@@ -3,23 +3,28 @@
 
 #include "coro/IoService.h"
 #include "coro/AsioTask.h"
+#include <string>
 
 namespace coro {
 
-/// Wrapper вокруг asio::ip::basic_resolver
+/*!
+	@brief Wrapper вокруг asio::ip::basic_resolver
+
+	В asio 1.36 устаревшие basic_resolver::query / basic_resolver::iterator удалены, поэтому
+	используется современный async_resolve(protocol, host, service) с результатом results_type.
+*/
 template <typename InternetProtocol>
 class Resolver {
 public:
 	typedef asio::ip::basic_resolver<InternetProtocol> Impl;
-	typedef typename Impl::iterator Iterator;
-	typedef typename Impl::query Query;
+	typedef typename Impl::results_type Results;
 
 	Resolver(): _handle(IoService::current()->_impl) {}
 
-	Iterator resolve(const Query& query) {
-		AsioTask2<Iterator> task;
-		_handle.async_resolve(query, task.callback());
-		return task.wait(_handle);
+	Results resolve(const InternetProtocol& protocol, const std::string& host, const std::string& service) {
+		return awaitValue<Results>([&](auto&& handler) {
+			_handle.async_resolve(protocol, host, service, std::forward<decltype(handler)>(handler));
+		});
 	}
 
 private:

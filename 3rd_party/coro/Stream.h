@@ -1,9 +1,7 @@
 
 #pragma once
 
-
 #include "coro/AsioTask.h"
-
 
 namespace coro {
 
@@ -21,30 +19,30 @@ public:
 
 	template <typename ...T>
 	size_t write(T&&... t) {
-		AsioTask2<size_t> task;
-		asio::async_write(_handle, asio::buffer(std::forward<T>(t)...), task.callback());
-		return task.wait(_handle);
+		return awaitValue<size_t>([&](auto&& handler) {
+			asio::async_write(_handle, asio::buffer(std::forward<T>(t)...), std::forward<decltype(handler)>(handler));
+		});
 	}
 
 	template <typename ...T>
 	size_t read(T&&... t) {
-		AsioTask2<size_t> task;
-		asio::async_read(_handle, asio::buffer(std::forward<T>(t)...), task.callback());
-		return task.wait(_handle);
+		return awaitValue<size_t>([&](auto&& handler) {
+			asio::async_read(_handle, asio::buffer(std::forward<T>(t)...), std::forward<decltype(handler)>(handler));
+		});
 	}
 
 	template <typename ...T>
 	size_t writeSome(T&&... t) {
-		AsioTask2<size_t> task;
-		_handle.async_write_some(asio::buffer(std::forward<T>(t)...), task.callback());
-		return task.wait(_handle);
+		return awaitValue<size_t>([&](auto&& handler) {
+			_handle.async_write_some(asio::buffer(std::forward<T>(t)...), std::forward<decltype(handler)>(handler));
+		});
 	}
 
 	template <typename ...T>
 	size_t readSome(T&&... t) {
-		AsioTask2<size_t> task;
-		_handle.async_read_some(asio::buffer(std::forward<T>(t)...), task.callback());
-		return task.wait(_handle);
+		return awaitValue<size_t>([&](auto&& handler) {
+			_handle.async_read_some(asio::buffer(std::forward<T>(t)...), std::forward<decltype(handler)>(handler));
+		});
 	}
 
 	Handle& handle() {

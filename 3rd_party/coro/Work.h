@@ -5,12 +5,13 @@
 
 namespace coro {
 
-/// Wrapper вокруг asio::io_service::work
+/// Удерживает io_context запущенным, пока есть незавершённая работа (бывший asio::io_service::work)
 class Work {
 public:
 
 private:
-	asio::io_service::work _impl = asio::io_service::work(IoService::current()->_impl);
+	asio::executor_work_guard<asio::io_context::executor_type> _impl =
+		asio::make_work_guard(IoService::current()->_impl);
 };
 
 }

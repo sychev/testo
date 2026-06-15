@@ -26,7 +26,7 @@ asio::ip::tcp::endpoint parse_tcp_endpoint(const std::string& endpoint) {
 		} catch (const std::exception& error) {
 			std::throw_with_nested(std::runtime_error("Report server port doesn't seem to be valid: " + sport));
 		}
-		return asio::ip::tcp::endpoint(asio::ip::address::from_string(ip), uport);
+		return asio::ip::tcp::endpoint(asio::ip::make_address(ip), uport);
 	} catch (const std::exception& error) {
 		std::throw_with_nested(std::runtime_error("Failed to parse endpoint " + endpoint));
 	}

@@ -2,7 +2,7 @@
 // basic_socket.hpp
 // ~~~~~~~~~~~~~~~~
 //
-// Copyright (c) 2003-2019 Christopher M. Kohlhoff (chris at kohlhoff dot com)
+// Copyright (c) 2003-2025 Christopher M. Kohlhoff (chris at kohlhoff dot com)
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -15,6 +15,8 @@
 # pragma once
 #endif // defined(_MSC_VER) && (_MSC_VER >= 1200)
 
+#include <utility>
+#include "asio/any_io_executor.hpp"
 #include "asio/detail/config.hpp"
 #include "asio/async_result.hpp"
 #include "asio/detail/handler_type_requirements.hpp"
@@ -24,7 +26,6 @@
 #include "asio/detail/type_traits.hpp"
 #include "asio/error.hpp"
 #include "asio/execution_context.hpp"
-#include "asio/executor.hpp"
 #include "asio/post.hpp"
 #include "asio/socket_base.hpp"
 
@@ -32,13 +33,11 @@
 # include "asio/detail/null_socket_service.hpp"
 #elif defined(ASIO_HAS_IOCP)
 # include "asio/detail/win_iocp_socket_service.hpp"
+#elif defined(ASIO_HAS_IO_URING_AS_DEFAULT)
+# include "asio/detail/io_uring_socket_service.hpp"
 #else
 # include "asio/detail/reactive_socket_service.hpp"
 #endif
-
-#if defined(ASIO_HAS_MOVE)
-# include <utility>
-#endif // defined(ASIO_HAS_MOVE)
 
 #include "asio/detail/push_options.hpp"
 
@@ -48,7 +47,7 @@ namespace asio {
 #define ASIO_BASIC_SOCKET_FWD_DECL
 
 // Forward declaration with defaulted arguments.
-template <typename Protocol, typename Executor = executor>
+template <typename Protocol, typename Executor = any_io_executor>
 class basic_socket;
 
 #endif // !defined(ASIO_BASIC_SOCKET_FWD_DECL)
@@ -66,6 +65,10 @@ template <typename Protocol, typename Executor>
 class basic_socket
   : public socket_base
 {
+private:
+  class initiate_async_connect;
+  class initiate_async_wait;
+
 public:
   /// The type of the executor associated with the object.
   typedef Executor executor_type;
@@ -86,6 +89,9 @@ public:
     Protocol>::native_handle_type native_handle_type;
 #elif defined(ASIO_HAS_IOCP)
   typedef typename detail::win_iocp_socket_service<
+    Protocol>::native_handle_type native_handle_type;
+#elif defined(ASIO_HAS_IO_URING_AS_DEFAULT)
+  typedef typename detail::io_uring_socket_service<
     Protocol>::native_handle_type native_handle_type;
 #else
   typedef typename detail::reactive_socket_service<
@@ -111,7 +117,7 @@ public:
    * dispatch handlers for any asynchronous operations performed on the socket.
    */
   explicit basic_socket(const executor_type& ex)
-    : impl_(ex)
+    : impl_(0, ex)
   {
   }
 
@@ -125,10 +131,10 @@ public:
    */
   template <typename ExecutionContext>
   explicit basic_socket(ExecutionContext& context,
-      typename enable_if<
+      constraint_t<
         is_convertible<ExecutionContext&, execution_context&>::value
-      >::type* = 0)
-    : impl_(context)
+      > = 0)
+    : impl_(0, 0, context)
   {
   }
 
@@ -144,7 +150,7 @@ public:
    * @throws asio::system_error Thrown on failure.
    */
   basic_socket(const executor_type& ex, const protocol_type& protocol)
-    : impl_(ex)
+    : impl_(0, ex)
   {
     asio::error_code ec;
     impl_.get_service().open(impl_.get_implementation(), protocol, ec);
@@ -165,10 +171,11 @@ public:
    */
   template <typename ExecutionContext>
   basic_socket(ExecutionContext& context, const protocol_type& protocol,
-      typename enable_if<
-        is_convertible<ExecutionContext&, execution_context&>::value
-      >::type* = 0)
-    : impl_(context)
+      constraint_t<
+        is_convertible<ExecutionContext&, execution_context&>::value,
+        defaulted_constraint
+      > = defaulted_constraint())
+    : impl_(0, 0, context)
   {
     asio::error_code ec;
     impl_.get_service().open(impl_.get_implementation(), protocol, ec);
@@ -191,7 +198,7 @@ public:
    * @throws asio::system_error Thrown on failure.
    */
   basic_socket(const executor_type& ex, const endpoint_type& endpoint)
-    : impl_(ex)
+    : impl_(0, ex)
   {
     asio::error_code ec;
     const protocol_type protocol = endpoint.protocol();
@@ -219,10 +226,10 @@ public:
    */
   template <typename ExecutionContext>
   basic_socket(ExecutionContext& context, const endpoint_type& endpoint,
-      typename enable_if<
+      constraint_t<
         is_convertible<ExecutionContext&, execution_context&>::value
-      >::type* = 0)
-    : impl_(context)
+      > = 0)
+    : impl_(0, 0, context)
   {
     asio::error_code ec;
     const protocol_type protocol = endpoint.protocol();
@@ -247,7 +254,7 @@ public:
    */
   basic_socket(const executor_type& ex, const protocol_type& protocol,
       const native_handle_type& native_socket)
-    : impl_(ex)
+    : impl_(0, ex)
   {
     asio::error_code ec;
     impl_.get_service().assign(impl_.get_implementation(),
@@ -272,10 +279,10 @@ public:
   template <typename ExecutionContext>
   basic_socket(ExecutionContext& context, const protocol_type& protocol,
       const native_handle_type& native_socket,
-      typename enable_if<
+      constraint_t<
         is_convertible<ExecutionContext&, execution_context&>::value
-      >::type* = 0)
-    : impl_(context)
+      > = 0)
+    : impl_(0, 0, context)
   {
     asio::error_code ec;
     impl_.get_service().assign(impl_.get_implementation(),
@@ -283,7 +290,6 @@ public:
     asio::detail::throw_error(ec, "assign");
   }
 
-#if defined(ASIO_HAS_MOVE) || defined(GENERATING_DOCUMENTATION)
   /// Move-construct a basic_socket from another.
   /**
    * This constructor moves a socket from one object to another.
@@ -294,7 +300,7 @@ public:
    * @note Following the move, the moved-from object is in the same state as if
    * constructed using the @c basic_socket(const executor_type&) constructor.
    */
-  basic_socket(basic_socket&& other)
+  basic_socket(basic_socket&& other) noexcept
     : impl_(std::move(other.impl_))
   {
   }
@@ -331,10 +337,10 @@ public:
    */
   template <typename Protocol1, typename Executor1>
   basic_socket(basic_socket<Protocol1, Executor1>&& other,
-      typename enable_if<
+      constraint_t<
         is_convertible<Protocol1, Protocol>::value
           && is_convertible<Executor1, Executor>::value
-      >::type* = 0)
+      > = 0)
     : impl_(std::move(other.impl_))
   {
   }
@@ -350,20 +356,19 @@ public:
    * constructed using the @c basic_socket(const executor_type&) constructor.
    */
   template <typename Protocol1, typename Executor1>
-  typename enable_if<
+  constraint_t<
     is_convertible<Protocol1, Protocol>::value
       && is_convertible<Executor1, Executor>::value,
     basic_socket&
-  >::type operator=(basic_socket<Protocol1, Executor1> && other)
+  > operator=(basic_socket<Protocol1, Executor1>&& other)
   {
     basic_socket tmp(std::move(other));
     impl_ = std::move(tmp.impl_);
     return *this;
   }
-#endif // defined(ASIO_HAS_MOVE) || defined(GENERATING_DOCUMENTATION)
 
   /// Get the executor associated with the object.
-  executor_type get_executor() ASIO_NOEXCEPT
+  const executor_type& get_executor() noexcept
   {
     return impl_.get_executor();
   }
@@ -901,7 +906,8 @@ public:
   /// Start an asynchronous connect.
   /**
    * This function is used to asynchronously connect a socket to the specified
-   * remote endpoint. The function call always returns immediately.
+   * remote endpoint. It is an initiating function for an @ref
+   * asynchronous_operation, and always returns immediately.
    *
    * The socket is automatically opened if it is not already open. If the
    * connect fails, and the socket was automatically opened, the socket is
@@ -910,16 +916,21 @@ public:
    * @param peer_endpoint The remote endpoint to which the socket will be
    * connected. Copies will be made of the endpoint object as required.
    *
-   * @param handler The handler to be called when the connection operation
-   * completes. Copies will be made of the handler as required. The function
-   * signature of the handler must be:
+   * @param token The @ref completion_token that will be used to produce a
+   * completion handler, which will be called when the connect completes.
+   * Potential completion tokens include @ref use_future, @ref use_awaitable,
+   * @ref yield_context, or a function object with the correct completion
+   * signature. The function signature of the completion handler must be:
    * @code void handler(
-   *   const asio::error_code& error // Result of operation
+   *   const asio::error_code& error // Result of operation.
    * ); @endcode
    * Regardless of whether the asynchronous operation completes immediately or
-   * not, the handler will not be invoked from within this function. On
-   * immediate completion, invocation of the handler will be performed in a
-   * manner equivalent to using asio::post().
+   * not, the completion handler will not be invoked from within this function.
+   * On immediate completion, invocation of the handler will be performed in a
+   * manner equivalent to using asio::async_immediate().
+   *
+   * @par Completion Signature
+   * @code void(asio::error_code) @endcode
    *
    * @par Example
    * @code
@@ -938,12 +949,26 @@ public:
    *     asio::ip::address::from_string("1.2.3.4"), 12345);
    * socket.async_connect(endpoint, connect_handler);
    * @endcode
+   *
+   * @par Per-Operation Cancellation
+   * On POSIX or Windows operating systems, this asynchronous operation supports
+   * cancellation for the following asio::cancellation_type values:
+   *
+   * @li @c cancellation_type::terminal
+   *
+   * @li @c cancellation_type::partial
+   *
+   * @li @c cancellation_type::total
    */
-  template <typename ConnectHandler>
-  ASIO_INITFN_RESULT_TYPE(ConnectHandler,
-      void (asio::error_code))
-  async_connect(const endpoint_type& peer_endpoint,
-      ASIO_MOVE_ARG(ConnectHandler) handler)
+  template <
+      ASIO_COMPLETION_TOKEN_FOR(void (asio::error_code))
+        ConnectToken = default_completion_token_t<executor_type>>
+  auto async_connect(const endpoint_type& peer_endpoint,
+      ConnectToken&& token = default_completion_token_t<executor_type>())
+    -> decltype(
+      async_initiate<ConnectToken, void (asio::error_code)>(
+        declval<initiate_async_connect>(), token,
+        peer_endpoint, declval<asio::error_code&>()))
   {
     asio::error_code open_ec;
     if (!is_open())
@@ -952,8 +977,8 @@ public:
       impl_.get_service().open(impl_.get_implementation(), protocol, open_ec);
     }
 
-    return async_initiate<ConnectHandler, void (asio::error_code)>(
-        initiate_async_connect(), handler, this, peer_endpoint, open_ec);
+    return async_initiate<ConnectToken, void (asio::error_code)>(
+        initiate_async_connect(this), token, peer_endpoint, open_ec);
   }
 
   /// Set an option on the socket.
@@ -1737,20 +1762,27 @@ public:
   /// write, or to have pending error conditions.
   /**
    * This function is used to perform an asynchronous wait for a socket to enter
-   * a ready to read, write or error condition state.
+   * a ready to read, write or error condition state. It is an initiating
+   * function for an @ref asynchronous_operation, and always returns
+   * immediately.
    *
    * @param w Specifies the desired socket state.
    *
-   * @param handler The handler to be called when the wait operation completes.
-   * Copies will be made of the handler as required. The function signature of
-   * the handler must be:
+   * @param token The @ref completion_token that will be used to produce a
+   * completion handler, which will be called when the wait completes. Potential
+   * completion tokens include @ref use_future, @ref use_awaitable, @ref
+   * yield_context, or a function object with the correct completion signature.
+   * The function signature of the completion handler must be:
    * @code void handler(
-   *   const asio::error_code& error // Result of operation
+   *   const asio::error_code& error // Result of operation.
    * ); @endcode
    * Regardless of whether the asynchronous operation completes immediately or
-   * not, the handler will not be invoked from within this function. On
-   * immediate completion, invocation of the handler will be performed in a
-   * manner equivalent to using asio::post().
+   * not, the completion handler will not be invoked from within this function.
+   * On immediate completion, invocation of the handler will be performed in a
+   * manner equivalent to using asio::async_immediate().
+   *
+   * @par Completion Signature
+   * @code void(asio::error_code) @endcode
    *
    * @par Example
    * @code
@@ -1768,14 +1800,28 @@ public:
    * ...
    * socket.async_wait(asio::ip::tcp::socket::wait_read, wait_handler);
    * @endcode
+   *
+   * @par Per-Operation Cancellation
+   * On POSIX or Windows operating systems, this asynchronous operation supports
+   * cancellation for the following asio::cancellation_type values:
+   *
+   * @li @c cancellation_type::terminal
+   *
+   * @li @c cancellation_type::partial
+   *
+   * @li @c cancellation_type::total
    */
-  template <typename WaitHandler>
-  ASIO_INITFN_RESULT_TYPE(WaitHandler,
-      void (asio::error_code))
-  async_wait(wait_type w, ASIO_MOVE_ARG(WaitHandler) handler)
+  template <
+      ASIO_COMPLETION_TOKEN_FOR(void (asio::error_code))
+        WaitToken = default_completion_token_t<executor_type>>
+  auto async_wait(wait_type w,
+      WaitToken&& token = default_completion_token_t<executor_type>())
+    -> decltype(
+      async_initiate<WaitToken, void (asio::error_code)>(
+          declval<initiate_async_wait>(), token, w))
   {
-    return async_initiate<WaitHandler, void (asio::error_code)>(
-        initiate_async_wait(), handler, this, w);
+    return async_initiate<WaitToken, void (asio::error_code)>(
+        initiate_async_wait(this), token, w);
   }
 
 protected:
@@ -1794,6 +1840,9 @@ protected:
 #elif defined(ASIO_HAS_IOCP)
   detail::io_object_impl<
     detail::win_iocp_socket_service<Protocol>, Executor> impl_;
+#elif defined(ASIO_HAS_IO_URING_AS_DEFAULT)
+  detail::io_object_impl<
+    detail::io_uring_socket_service<Protocol>, Executor> impl_;
 #else
   detail::io_object_impl<
     detail::reactive_socket_service<Protocol>, Executor> impl_;
@@ -1801,14 +1850,27 @@ protected:
 
 private:
   // Disallow copying and assignment.
-  basic_socket(const basic_socket&) ASIO_DELETED;
-  basic_socket& operator=(const basic_socket&) ASIO_DELETED;
+  basic_socket(const basic_socket&) = delete;
+  basic_socket& operator=(const basic_socket&) = delete;
 
-  struct initiate_async_connect
+  class initiate_async_connect
   {
+  public:
+    typedef Executor executor_type;
+
+    explicit initiate_async_connect(basic_socket* self)
+      : self_(self)
+    {
+    }
+
+    const executor_type& get_executor() const noexcept
+    {
+      return self_->get_executor();
+    }
+
     template <typename ConnectHandler>
-    void operator()(ASIO_MOVE_ARG(ConnectHandler) handler,
-        basic_socket* self, const endpoint_type& peer_endpoint,
+    void operator()(ConnectHandler&& handler,
+        const endpoint_type& peer_endpoint,
         const asio::error_code& open_ec) const
     {
       // If you get an error on the following line it means that your handler
@@ -1817,35 +1879,53 @@ private:
 
       if (open_ec)
       {
-          asio::post(self->impl_.get_executor(),
+          asio::post(self_->impl_.get_executor(),
               asio::detail::bind_handler(
-                ASIO_MOVE_CAST(ConnectHandler)(handler), open_ec));
+                static_cast<ConnectHandler&&>(handler), open_ec));
       }
       else
       {
         detail::non_const_lvalue<ConnectHandler> handler2(handler);
-        self->impl_.get_service().async_connect(
-            self->impl_.get_implementation(), peer_endpoint,
-            handler2.value, self->impl_.get_implementation_executor());
+        self_->impl_.get_service().async_connect(
+            self_->impl_.get_implementation(), peer_endpoint,
+            handler2.value, self_->impl_.get_executor());
       }
     }
+
+  private:
+    basic_socket* self_;
   };
 
-  struct initiate_async_wait
+  class initiate_async_wait
   {
+  public:
+    typedef Executor executor_type;
+
+    explicit initiate_async_wait(basic_socket* self)
+      : self_(self)
+    {
+    }
+
+    const executor_type& get_executor() const noexcept
+    {
+      return self_->get_executor();
+    }
+
     template <typename WaitHandler>
-    void operator()(ASIO_MOVE_ARG(WaitHandler) handler,
-        basic_socket* self, wait_type w) const
+    void operator()(WaitHandler&& handler, wait_type w) const
     {
       // If you get an error on the following line it means that your handler
       // does not meet the documented type requirements for a WaitHandler.
       ASIO_WAIT_HANDLER_CHECK(WaitHandler, handler) type_check;
 
       detail::non_const_lvalue<WaitHandler> handler2(handler);
-      self->impl_.get_service().async_wait(
-          self->impl_.get_implementation(), w, handler2.value,
-          self->impl_.get_implementation_executor());
+      self_->impl_.get_service().async_wait(
+          self_->impl_.get_implementation(), w,
+          handler2.value, self_->impl_.get_executor());
     }
+
+  private:
+    basic_socket* self_;
   };
 };
 

@@ -1,7 +1,5 @@
 
 #include "coro/Coro.h"
-#include <coro/Finally.h>
-#include <algorithm>
 #include <cassert>
 #include <stdexcept>
 
@@ -31,13 +29,12 @@ Coro* Coro::current() {
 	return t_currentCoro;
 }
 
-Coro::Coro(std::function<void()> routine): _routine(std::move(routine)), _fiber(Run, this),
-	_previousCoro(nullptr), _tokens({TokenStart})
+Coro::Coro(std::function<void()> routine): _routine(std::move(routine)), _fiber(Run, this)
 {
 }
 
 Coro::~Coro() {
-	assert(_tokens.empty() || _tokens == std::vector<std::string>{TokenStart});
+	assert(_state == State::NotStarted || _state == State::Done);
 #ifdef _DEBUG
 	std::string what;
 	for (auto exception: _exceptions) {
@@ -66,15 +63,7 @@ Coro::~Coro() {
 #endif
 }
 
-void Coro::start() {
-	resume(TokenStart);
-}
-
-void Coro::resume(const std::string& token) {
-	if (std::find(_tokens.begin(), _tokens.end(), token) == _tokens.end()) {
-		return;
-	}
-
+void Coro::switchIn() {
 	_previousCoro = t_currentCoro;
 	t_currentCoro = this;
 	if (_previousCoro) {
@@ -86,21 +75,29 @@ void Coro::resume(const std::string& token) {
 	_previousCoro = nullptr;
 }
 
-void Coro::propagateException(std::exception_ptr exception) {
-	assert(exception);
-	_exceptions.push_back(exception);
-	resume(TokenThrow);
+void Coro::start() {
+	assert(_state == State::NotStarted);
+	switchIn();
 }
 
-void Coro::yield(std::vector<std::string> tokens) {
-	_tokens = std::move(tokens);
-	Finally clearTokens([&] {
-		_tokens.clear();
-	});
-
-	if (std::find(_tokens.begin(), _tokens.end(), TokenThrow) != _tokens.end()) {
-		propagateException();
+void Coro::wake(WaitToken token) {
+	// Нулевой токен зарезервирован под "ожидание только исключения" и не пробуждается wake().
+	if (token == nullptr) {
+		return;
 	}
+	if (_state == State::Suspended && _waitToken == token) {
+		switchIn();
+	}
+}
+
+void Coro::suspend(WaitToken token, bool interruptible) {
+	if (interruptible) {
+		rethrowPendingException();
+	}
+
+	_waitToken = token;
+	_interruptible = interruptible;
+	_state = State::Suspended;
 
 	if (_previousCoro) {
 		_fiber.switchTo(_previousCoro->_fiber);
@@ -108,8 +105,23 @@ void Coro::yield(std::vector<std::string> tokens) {
 		_fiber.exit();
 	}
 
-	if (std::find(_tokens.begin(), _tokens.end(), TokenThrow) != _tokens.end()) {
-		propagateException();
+	_state = State::Running;
+	_waitToken = nullptr;
+	_interruptible = false;
+
+	if (interruptible) {
+		rethrowPendingException();
+	}
+}
+
+void Coro::propagateException(std::exception_ptr exception) {
+	assert(exception);
+	_exceptions.push_back(exception);
+
+	// Если корутина прямо сейчас приостановлена и готова принять исключение — будим её, чтобы
+	// исключение было выброшено немедленно. Иначе оно дождётся ближайшей прерываемой приостановки.
+	if (_state == State::Suspended && _interruptible) {
+		switchIn();
 	}
 }
 
@@ -117,7 +129,7 @@ void Coro::cancel() {
 	propagateException(CancelError());
 }
 
-void Coro::propagateException() {
+void Coro::rethrowPendingException() {
 	if (_exceptions.size()) {
 		auto exception = _exceptions.front();
 		_exceptions.pop_front();
@@ -127,6 +139,7 @@ void Coro::propagateException() {
 }
 
 void Coro::run() {
+	_state = State::Running;
 	try
 	{
 		_routine();
@@ -141,7 +154,14 @@ void Coro::run() {
 		_exceptions.push_front(exception);
 	}
 	_routine = nullptr;
-	yield({});
+	_state = State::Done;
+
+	// Финальное переключение обратно к инициатору. Сюда мы больше не вернёмся.
+	if (_previousCoro) {
+		_fiber.switchTo(_previousCoro->_fiber);
+	} else {
+		_fiber.exit();
+	}
 }
 
 }

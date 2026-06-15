@@ -24,9 +24,9 @@ public:
 	{
 		typename Protocol::socket socket(IoService::current()->_impl);
 
-		AsioTask1 task;
-		_handle.async_accept(socket, task.callback());
-		task.wait(_handle);
+		awaitOp([&](auto&& handler) {
+			_handle.async_accept(socket, std::forward<decltype(handler)>(handler));
+		});
 
 		return socket;
 	}

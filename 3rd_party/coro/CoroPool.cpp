@@ -2,6 +2,7 @@
 #include "coro/IoService.h"
 #include "coro/CoroPool.h"
 #include <coro/Finally.h>
+#include <cassert>
 
 namespace coro {
 
@@ -41,11 +42,9 @@ void CoroPool::waitAll(bool noThrow) {
 		return;
 	}
 
-	if (noThrow) {
-		_parentCoro->yield({token()});
-	} else {
-		_parentCoro->yield({token(), TokenThrow});
-	}
+	// noThrow == true  -> ждём без возможности прерывания (как прежний {token()})
+	// noThrow == false -> ждём прерываемо (как прежний {token(), TokenThrow})
+	_parentCoro->suspend(this, /* interruptible = */ !noThrow);
 
 	assert(_childCoros.empty());
 }
@@ -62,7 +61,7 @@ void CoroPool::onCoroDone(Coro* childCoro) {
 	IoService::current()->post([=] {
 		while (childCoro->exceptions().size()) {
 			try {
-				childCoro->propagateException();
+				childCoro->rethrowPendingException();
 			}
 			catch (const CancelError&) {
 				// CancelError не пробрасываем в родительскую корутину
@@ -76,13 +75,9 @@ void CoroPool::onCoroDone(Coro* childCoro) {
 		delete childCoro;
 
 		if (_childCoros.empty()) {
-			_parentCoro->resume(token());
+			_parentCoro->wake(this);
 		}
 	});
-}
-
-std::string CoroPool::token() const {
-	return "CoroPool " + std::to_string((uint64_t)this);
 }
 
 }

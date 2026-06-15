@@ -29,8 +29,6 @@ public:
 private:
 	void onCoroDone(Coro* coro);
 
-	std::string token() const;
-
 	Coro* _parentCoro = Coro::current();
 	std::set<Coro*> _childCoros;
 };

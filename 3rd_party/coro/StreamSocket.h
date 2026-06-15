@@ -20,9 +20,9 @@ public:
 	}
 
 	void connect(const typename Protocol::endpoint& endpoint) {
-		AsioTask1 task;
-		_handle.async_connect(endpoint, task.callback());
-		task.wait(_handle);
+		awaitOp([&](auto&& handler) {
+			_handle.async_connect(endpoint, std::forward<decltype(handler)>(handler));
+		});
 	}
 
 };

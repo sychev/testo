@@ -2,7 +2,6 @@
 #pragma once
 
 #include <asio/steady_timer.hpp>
-#include <atomic>
 #include "coro/Coro.h"
 #include "coro/IoService.h"
 
@@ -45,11 +44,11 @@ public:
 	/// Установить таймаут
 	template <typename Duration>
 	Timeout(Duration duration): _timer(IoService::current()->_impl) {
-		_timer.expires_from_now(duration);
-		_timer.async_wait([=](const std::error_code& errorCode) {
+		_timer.expires_after(duration);
+		_timer.async_wait([this](const std::error_code& errorCode) {
 			_callbackExecuted = true;
 			if (_timerCanceled) {
-				return _coro->resume(token());
+				return _coro->wake(this);
 			}
 			if (errorCode) {
 				return _coro->propagateException(std::system_error(errorCode));
@@ -62,20 +61,13 @@ public:
 		if (!_callbackExecuted) {
 			_timerCanceled = true;
 			_timer.cancel();
-			waitCallbackExecution();
+			// Дожидаемся фактического вызова callback'а таймера (operation_aborted),
+			// чтобы он не обратился к уже уничтоженному Timeout. Прерывания не принимаем.
+			_coro->suspend(this, /* interruptible = */ false);
 		}
 	}
 
 private:
-	void waitCallbackExecution() {
-		_coro->yield({token()});
-	}
-
-
-	std::string token() const {
-		return "Timeout " + std::to_string((uint64_t)this);
-	}
-
 	asio::steady_timer _timer;
 	Coro* _coro = Coro::current();
 	bool _timerCanceled = false, _callbackExecuted = false;

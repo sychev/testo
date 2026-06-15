@@ -8,7 +8,7 @@ using namespace asio::ip;
 using namespace coro;
 
 TEST_CASE("TCP server + TCP client") {
-	auto endpoint = tcp::endpoint(address::from_string("127.0.0.1"), 44442);
+	auto endpoint = tcp::endpoint(make_address("127.0.0.1"), 44442);
 	std::vector<uint8_t> TestData { 0x01, 0x02, 0x03, 0x04 };
 
 	bool serverDone = false, clientDone = false;
@@ -40,7 +40,7 @@ TEST_CASE("TCP server + TCP client") {
 
 
 TEST_CASE("Cancel Acceptor::accept") {
-	auto endpoint = tcp::endpoint(address::from_string("127.0.0.1"), 44442);
+	auto endpoint = tcp::endpoint(make_address("127.0.0.1"), 44442);
 
 	bool success = false;
 

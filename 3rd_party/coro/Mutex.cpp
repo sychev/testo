@@ -11,7 +11,7 @@ void Mutex::lock() {
 			_coros.remove(Coro::current());
 		});
 		_coros.push_back(Coro::current());
-		_coros.back()->yield({token(), TokenThrow});
+		Coro::current()->suspend(this);
 	}
 
 	assert(_owner == nullptr);
@@ -23,12 +23,8 @@ void Mutex::unlock() {
 	_owner = nullptr;
 
 	if (!_coros.empty()) {
-		_coros.front()->resume(token());
+		_coros.front()->wake(this);
 	}
-}
-
-std::string Mutex::token() const {
-	return "Mutex " + std::to_string((uint64_t)this);
 }
 
 }

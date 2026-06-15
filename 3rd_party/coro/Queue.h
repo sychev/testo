@@ -28,7 +28,7 @@ public:
 				_coros.remove(Coro::current());
 			});
 			_coros.push_back(Coro::current());
-			_coros.back()->yield({token(), TokenThrow});
+			Coro::current()->suspend(this);
 		}
 
 		T t = std::move(_data.front());
@@ -42,7 +42,7 @@ public:
 		_data.push(std::forward<U>(u));
 
 		if (!_coros.empty()) {
-			_coros.front()->resume(token());
+			_coros.front()->wake(this);
 		}
 	}
 
@@ -51,10 +51,6 @@ public:
 	}
 
 private:
-	std::string token() const {
-		return "Queue " + std::to_string((uint64_t)this);
-	}
-
 	std::queue<T> _data;
 	std::list<Coro*> _coros;
 };

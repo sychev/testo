@@ -9,10 +9,13 @@ TEST_CASE("A basic mutex test") {
 
 	Mutex mutex;
 
+	// Адрес локальной переменной выступает токеном ручного пробуждения coro1.
+	int token;
+
 	Coro coro1([&] {
 		std::lock_guard<Mutex> lock(mutex);
 		actual.push_back(0);
-		Coro::current()->yield({"test"});
+		Coro::current()->suspend(&token);
 		actual.push_back(2);
 	});
 	Coro coro2([&] {
@@ -22,7 +25,7 @@ TEST_CASE("A basic mutex test") {
 	});
 	coro1.start();
 	coro2.start();
-	coro1.resume("test");
+	coro1.wake(&token);
 
 	REQUIRE(actual == expected);
 }

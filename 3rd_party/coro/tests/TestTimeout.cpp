@@ -18,7 +18,7 @@ TEST_CASE("A basic Timeout test", "[Timeout]") {
 
 	Timeout timeout(100ms);
 
-	REQUIRE_THROWS_AS(coro->yield({TokenThrow}), TimeoutError);
+	REQUIRE_THROWS_AS(coro->suspend(nullptr), TimeoutError);
 }
 
 
@@ -28,7 +28,7 @@ TEST_CASE("A basic TimeoutError test", "[Timeout]") {
 	Timeout timeout(100ms);
 
 	try {
-		coro->yield({TokenThrow});
+		coro->suspend(nullptr);
 	}
 	catch (const TimeoutError& error) {
 		REQUIRE(error.timeout() == &timeout);
@@ -43,7 +43,7 @@ TEST_CASE("The timeout fired when the coro was busy", "[Timeout]") {
 
 	std::this_thread::sleep_for(200ms);
 
-	REQUIRE_THROWS_AS(coro->yield({TokenThrow}), TimeoutError);
+	REQUIRE_THROWS_AS(coro->suspend(nullptr), TimeoutError);
 }
 
 TEST_CASE("Cancel timeout", "[Timeout]") {
@@ -61,8 +61,8 @@ TEST_CASE("Multiple timeouts", "[Timeout]") {
 
 	Timeout timeout(100ms);
 	Timeout timeout2(100ms);
-	REQUIRE_THROWS_AS(coro->yield({TokenThrow}), TimeoutError);
-	REQUIRE_THROWS_AS(coro->yield({TokenThrow}), TimeoutError);
+	REQUIRE_THROWS_AS(coro->suspend(nullptr), TimeoutError);
+	REQUIRE_THROWS_AS(coro->suspend(nullptr), TimeoutError);
 }
 
 
@@ -76,7 +76,7 @@ TEST_CASE("Timeout + queue", "[Timeout]") {
 
 TEST_CASE("Timeout + acceptor", "[Timeout]") {
 	Timeout timeout(100ms);
-	auto endpoint = tcp::endpoint(address::from_string("127.0.0.1"), 44442);
+	auto endpoint = tcp::endpoint(make_address("127.0.0.1"), 44442);
 	Acceptor<tcp> acceptor(endpoint);
 	REQUIRE_THROWS_AS(acceptor.accept(), TimeoutError);
 }
@@ -84,7 +84,7 @@ TEST_CASE("Timeout + acceptor", "[Timeout]") {
 
 TEST_CASE("Timeout + TCP socket", "[Timeout]") {
 	Timeout timeout(100ms);
-	auto endpoint = tcp::endpoint(address::from_string("127.0.0.1"), 44442);
+	auto endpoint = tcp::endpoint(make_address("127.0.0.1"), 44442);
 	Acceptor<tcp> acceptor(endpoint);
 	StreamSocket<tcp> socket;
 	socket.connect(endpoint);
@@ -94,7 +94,7 @@ TEST_CASE("Timeout + TCP socket", "[Timeout]") {
 
 TEST_CASE("Timeout + UDP socket", "[Timeout]") {
 	Timeout timeout(100ms);
-	DatagramSocket<udp> socket(udp::endpoint(address::from_string("127.0.0.1"), 44442));
+	DatagramSocket<udp> socket(udp::endpoint(make_address("127.0.0.1"), 44442));
 	std::vector<uint8_t> buffer(10);
 	udp::endpoint endpoint;
 	REQUIRE_THROWS_AS(socket.receive(asio::buffer(buffer), endpoint), TimeoutError);

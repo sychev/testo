@@ -28,10 +28,10 @@ TEST_CASE("CoroPool::cancelAll", "[CoroPool]") {
 	CoroPool pool;
 
 	pool.exec([] {
-		Coro::current()->yield({TokenThrow});
+		Coro::current()->suspend(nullptr);
 	});
 	pool.exec([] {
-		Coro::current()->yield({TokenThrow});
+		Coro::current()->suspend(nullptr);
 	});
 
 	pool.cancelAll();
