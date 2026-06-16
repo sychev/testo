@@ -129,14 +129,15 @@ bool mount_shared_folder(const std::string& folder_name, const fs::path& guest_p
 	}
 }
 
-bool umount_shared_folder(const std::string& folder_name) {
+asio::awaitable<bool> umount_shared_folder(const std::string& folder_name) {
 	auto status = get_shared_folder_status(folder_name);
 	if (status.at("is_mounted")) {
 #if defined(__QEMU__) && defined(__linux__)
 		for (size_t i = 0; ; ++i) {
+			bool need_retry = false;
 			try {
 				os::Process::exec("umount " + folder_name + " 2>&1");
-				return true;
+				co_return true;
 			} catch (const os::ProcessError& error) {
 				if (error.output.find("target is busy") == std::string::npos) {
 					throw;
@@ -144,15 +145,19 @@ bool umount_shared_folder(const std::string& folder_name) {
 				if (i == 20) {
 					throw;
 				}
-				coro::Timer().waitFor(1s);
+				need_retry = true;
+			}
+			// co_await is not allowed inside a catch handler, so we retry here.
+			if (need_retry) {
+				co_await coro::Timer().waitFor(1s);
 			}
 		}
 #else
 		throw std::runtime_error("Sorry, shared folders are not supported on this combination of the hypervisor and the operating system");
 #endif
-		return true;
+		co_return true;
 	} else {
-		return false;
+		co_return false;
 	}
 }
 

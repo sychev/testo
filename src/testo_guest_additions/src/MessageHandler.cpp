@@ -80,21 +80,21 @@ nlohmann::json ExecuteContext::lock() {
 	return j;
 }
 
-void MessageHandler::run(std::shared_ptr<Channel> channel_) {
+asio::awaitable<void> MessageHandler::run(std::shared_ptr<Channel> channel_) {
 	spdlog::info("Waiting for commands");
 
 	channel = channel_;
 	SCOPE_EXIT { channel = {}; };
 
 	while (true) {
-		command = channel->receive();
+		command = co_await channel->receive();
 		SCOPE_EXIT { command = {}; };
 
-		handle_message();
+		co_await handle_message();
 	}
 }
 
-void MessageHandler::handle_message() {
+asio::awaitable<void> MessageHandler::handle_message() {
 	if (command.count("version")) {
 		ver = command.at("version").get<std::string>();
 	} else {
@@ -103,47 +103,53 @@ void MessageHandler::handle_message() {
 
 	spdlog::info("testo version = {}, testo guest additions version = {}", ver.to_string(), TESTO_VERSION);
 
+	bool has_error = false;
+	std::string error_to_send;
 	try {
-		do_handle_message(command.at("method").get<std::string>());
+		co_await do_handle_message(command.at("method").get<std::string>());
 	} catch (const std::exception& error) {
 		spdlog::error("Error in MessageHandler::handle_message: {}", error.what());
 #ifdef WIN32
 		if (dynamic_cast<const std::system_error*>(&error) && !dynamic_cast<const fs::filesystem_error*>(&error)) {
 			std::wstring utf16_err = winapi::acp_to_utf16(error.what());
-			std::string utf8_err = winapi::utf16_to_utf8(utf16_err);
-			send_error(utf8_err);
+			error_to_send = winapi::utf16_to_utf8(utf16_err);
 		} else {
-			send_error(error.what());
+			error_to_send = error.what();
 		}
 #else
-		send_error(error.what());
+		error_to_send = error.what();
 #endif
+		has_error = true;
+	}
+	// co_await is not allowed inside a catch handler, so we report the error here.
+	if (has_error) {
+		co_await send_error(error_to_send);
 	}
 }
 
-void MessageHandler::do_handle_message(const std::string& method_name) {
+asio::awaitable<void> MessageHandler::do_handle_message(const std::string& method_name) {
 	if (method_name == "check_avaliable") {
-		return handle_check_avaliable();
+		co_await handle_check_avaliable();
 	} else if (method_name == "get_tmp_dir") {
-		return handle_get_tmp_dir();
+		co_await handle_get_tmp_dir();
 	} else if (method_name == "copy_file") {
-		return handle_copy_file();
+		co_await handle_copy_file();
 	} else if (method_name == "copy_files_out") {
-		return handle_copy_files_out();
+		co_await handle_copy_files_out();
 	} else if (method_name == "execute") {
-		return handle_execute();
+		co_await handle_execute();
 	} else if (method_name == "mount") {
-		return handle_mount();
+		co_await handle_mount();
 	} else if (method_name == "get_shared_folder_status") {
-		return handle_get_shared_folder_status();
+		co_await handle_get_shared_folder_status();
 	} else if (method_name == "umount") {
-		return handle_umount();
+		co_await handle_umount();
 	} else {
 		throw std::runtime_error(std::string("Method ") + method_name + " is not supported");
 	}
 }
 
-void MessageHandler::send_error(const std::string& error) {
+asio::awaitable<void> MessageHandler::send_error(const std::string& error) {
 	nlohmann::json response = {
 		{"success", false},
 	};
@@ -154,10 +160,10 @@ void MessageHandler::send_error(const std::string& error) {
 		response["error"] = base64_encode((uint8_t*)error.data(), error.size() + 1);
 	}
 
-	channel->send(std::move(response));
+	co_await channel->send(std::move(response));
 }
 
-void MessageHandler::handle_check_avaliable() {
+asio::awaitable<void> MessageHandler::handle_check_avaliable() {
 	spdlog::info("Checking avaliability call");
 
 	nlohmann::json response = {
@@ -165,11 +171,11 @@ void MessageHandler::handle_check_avaliable() {
 		{"result", nlohmann::json::object()}
 	};
 
-	channel->send(std::move(response));
+	co_await channel->send(std::move(response));
 	spdlog::info("Checking avaliability is OK");
 }
 
-void MessageHandler::handle_get_tmp_dir() {
+asio::awaitable<void> MessageHandler::handle_get_tmp_dir() {
 	spdlog::info("Getting tmp dir");
 
 	nlohmann::json response = {
@@ -179,11 +185,11 @@ void MessageHandler::handle_get_tmp_dir() {
 		}}
 	};
 
-	channel->send(std::move(response));
+	co_await channel->send(std::move(response));
 	spdlog::info("Getting tmp dir is OK");
 }
 
-void MessageHandler::handle_copy_file() {
+asio::awaitable<void> MessageHandler::handle_copy_file() {
 	const nlohmann::json& args = command.at("args");
 
 	for (auto file: args) {
@@ -207,13 +213,13 @@ void MessageHandler::handle_copy_file() {
 			f.write(content.data(), content.size());
 		} else {
 			uint64_t file_length = 0;
-			channel->receive_raw((uint8_t*)&file_length, sizeof(file_length));
+			co_await channel->receive_raw((uint8_t*)&file_length, sizeof(file_length));
 			uint64_t i = 0;
 			const uint64_t buf_size = 8 * 1024;
 			uint8_t buf[buf_size];
 			while (i < file_length) {
 				uint64_t chunk_size = std::min(buf_size, file_length - i);
-				channel->receive_raw(buf, chunk_size);
+				co_await channel->receive_raw(buf, chunk_size);
 				f.write(buf, chunk_size);
 				i += chunk_size;
 			}
@@ -227,7 +233,7 @@ void MessageHandler::handle_copy_file() {
 		{"result", nlohmann::json::object()}
 	};
 
-	channel->send(std::move(response));
+	co_await channel->send(std::move(response));
 }
 
 nlohmann::json MessageHandler::copy_single_file_out(const fs::path& src, const fs::path& dst) {
@@ -274,7 +280,7 @@ nlohmann::json MessageHandler::copy_directory_out(const fs::path& dir, const fs:
 	return files;
 }
 
-void MessageHandler::handle_copy_files_out() {
+asio::awaitable<void> MessageHandler::handle_copy_files_out() {
 	const nlohmann::json& args = command.at("args");
 
 	nlohmann::json files = nlohmann::json::array();
@@ -301,7 +307,7 @@ void MessageHandler::handle_copy_files_out() {
 		{"result", files}
 	};
 
-	channel->send(std::move(result));
+	co_await channel->send(std::move(result));
 
 	if (ver < VersionNumber(2,2,8)) {
 		// do nothing
@@ -314,14 +320,14 @@ void MessageHandler::handle_copy_files_out() {
 			os::File file = os::File::open_for_read(path);
 			uint64_t file_length = file.size();
 			spdlog::info("Sending file {}, file size = {}", path, file_length);
-			channel->send_raw((uint8_t*)&file_length, sizeof(file_length));
+			co_await channel->send_raw((uint8_t*)&file_length, sizeof(file_length));
 			uint64_t i = 0;
 			const uint64_t buf_size = 8 * 1024;
 			uint8_t buf[buf_size];
 			while (i < file_length) {
 				uint64_t chunk_size = std::min(buf_size, file_length - i);
 				file.read(buf, chunk_size);
-				channel->send_raw(buf, chunk_size);
+				co_await channel->send_raw(buf, chunk_size);
 				i += chunk_size;
 			}
 		}
@@ -330,7 +336,7 @@ void MessageHandler::handle_copy_files_out() {
 	spdlog::info("Copied FROM guest: " + src.generic_string());
 }
 
-void MessageHandler::handle_execute() {
+asio::awaitable<void> MessageHandler::handle_execute() {
 	const nlohmann::json& args = command.at("args");
 	auto cmd = args[0].get<std::string>();
 
@@ -347,7 +353,7 @@ void MessageHandler::handle_execute() {
 	{
 		exec_ctx.unlock(vars);
 		SCOPE_EXIT { vars = exec_ctx.lock(); };
-		rc = do_handle_execute(cmd);
+		rc = co_await do_handle_execute(cmd);
 	}
 
 	nlohmann::json result = {
@@ -359,13 +365,13 @@ void MessageHandler::handle_execute() {
 		}}
 	};
 
-	channel->send(std::move(result));
+	co_await channel->send(std::move(result));
 
 	spdlog::info("Command finished: " + cmd);
 	spdlog::info("Return code: " + std::to_string(rc));
 }
 
-int MessageHandler::do_handle_execute(std::string cmd) {
+asio::awaitable<int> MessageHandler::do_handle_execute(std::string cmd) {
 #if __linux__
 	cmd += " 2>&1";
 #endif
@@ -390,14 +396,14 @@ int MessageHandler::do_handle_execute(std::string cmd) {
 					{"stdout", base64_encode((uint8_t*)output.data(), output.size() + 1)}
 				}}
 			};
-			channel->send(std::move(result));
+			co_await channel->send(std::move(result));
 		}
 	}
 
-	return process.wait();
+	co_return process.wait();
 }
 
-void MessageHandler::handle_mount() {
+asio::awaitable<void> MessageHandler::handle_mount() {
 	const nlohmann::json& args = command.at("args");
 	std::string folder_name = args.at("folder_name");
 	fs::path guest_path = args.at("guest_path").get<std::string>();
@@ -416,12 +422,12 @@ void MessageHandler::handle_mount() {
 		{"was_indeed_mounted", was_indeed_mounted}
 	};
 
-	channel->send(std::move(result));
+	co_await channel->send(std::move(result));
 
 	spdlog::info("Mounting is OK");
 }
 
-void MessageHandler::handle_get_shared_folder_status() {
+asio::awaitable<void> MessageHandler::handle_get_shared_folder_status() {
 	const nlohmann::json& args = command.at("args");
 	std::string folder_name = args.at("folder_name");
 
@@ -434,19 +440,19 @@ void MessageHandler::handle_get_shared_folder_status() {
 		{"result", status}
 	};
 
-	channel->send(std::move(result));
+	co_await channel->send(std::move(result));
 
 	spdlog::info("Getting status is OK");
 }
 
-void MessageHandler::handle_umount() {
+asio::awaitable<void> MessageHandler::handle_umount() {
 	const nlohmann::json& args = command.at("args");
 	std::string folder_name = args.at("folder_name");
 	bool permanent = args.at("permanent");
 
 	spdlog::info("Umounting shared folder {}", folder_name);
 
-	bool was_indeed_umounted = umount_shared_folder(folder_name);
+	bool was_indeed_umounted = co_await umount_shared_folder(folder_name);
 
 	if (permanent) {
 		unregister_shared_folder(folder_name);
@@ -457,22 +463,22 @@ void MessageHandler::handle_umount() {
 		{"was_indeed_umounted", was_indeed_umounted}
 	};
 
-	channel->send(std::move(result));
+	co_await channel->send(std::move(result));
 
 	spdlog::info("Umounting is OK");
 }
 
-void CLIMessageHandler::do_handle_message(const std::string& method_name) {
+asio::awaitable<void> CLIMessageHandler::do_handle_message(const std::string& method_name) {
 	if (method_name == "set_var") {
-		return handle_set_var();
+		co_await handle_set_var();
 	} else if (method_name == "get_var") {
-		return handle_get_var();
+		co_await handle_get_var();
 	} else {
-		return MessageHandler::do_handle_message(method_name);
+		co_await MessageHandler::do_handle_message(method_name);
 	}
 }
 
-void CLIMessageHandler::handle_set_var() {
+asio::awaitable<void> CLIMessageHandler::handle_set_var() {
 	const nlohmann::json& args = command.at("args");
 	std::string var_name = args.at("var_name");
 	std::string var_value = args.at("var_value");
@@ -486,12 +492,12 @@ void CLIMessageHandler::handle_set_var() {
 		{"success", true},
 	};
 
-	channel->send(std::move(result));
+	co_await channel->send(std::move(result));
 
 	spdlog::info("Setting variable is OK");
 }
 
-void CLIMessageHandler::handle_get_var() {
+asio::awaitable<void> CLIMessageHandler::handle_get_var() {
 	const nlohmann::json& args = command.at("args");
 	std::string var_name = args.at("var_name");
 
@@ -504,7 +510,7 @@ void CLIMessageHandler::handle_get_var() {
 		{"var_value", var_value}
 	};
 
-	channel->send(std::move(result));
+	co_await channel->send(std::move(result));
 
 	spdlog::info("Getting variable is OK");
 }

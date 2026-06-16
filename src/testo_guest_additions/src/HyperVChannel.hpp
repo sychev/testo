@@ -19,8 +19,8 @@ struct HyperVChannel: Channel {
 	HyperVChannel(HyperVChannel&& other);
 	HyperVChannel& operator=(HyperVChannel&& other);
 
-	size_t read(uint8_t* data, size_t size) override;
-	size_t write(uint8_t* data, size_t size) override;
+	asio::awaitable<size_t> read(uint8_t* data, size_t size) override;
+	asio::awaitable<size_t> write(uint8_t* data, size_t size) override;
 
 private:
 	Socket socket;

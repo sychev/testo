@@ -28,18 +28,18 @@ QemuLinuxChannel& QemuLinuxChannel::operator=(QemuLinuxChannel&& other) {
 	return *this;
 }
 
-size_t QemuLinuxChannel::read(uint8_t* data, size_t size) {
+asio::awaitable<size_t> QemuLinuxChannel::read(uint8_t* data, size_t size) {
 	int n = ::read(fd, data, size);
 	if (n < 0) {
 		throw std::runtime_error("::read failed");
 	}
-	return n;
+	co_return n;
 }
 
-size_t QemuLinuxChannel::write(uint8_t* data, size_t size) {
+asio::awaitable<size_t> QemuLinuxChannel::write(uint8_t* data, size_t size) {
 	int n = ::write(fd, data, size);
 	if (n < 0) {
 		throw std::runtime_error("::write failed");
 	}
-	return n;
+	co_return n;
 }

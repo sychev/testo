@@ -14,10 +14,10 @@ HyperVChannel& HyperVChannel::operator=(HyperVChannel&& other) {
 	return *this;
 }
 
-size_t HyperVChannel::read(uint8_t* data, size_t size) {
-	return socket.readSome(data, size);
+asio::awaitable<size_t> HyperVChannel::read(uint8_t* data, size_t size) {
+	co_return co_await socket.readSome(data, size);
 }
 
-size_t HyperVChannel::write(uint8_t* data, size_t size) {
-	return socket.writeSome(data, size);
+asio::awaitable<size_t> HyperVChannel::write(uint8_t* data, size_t size) {
+	co_return co_await socket.writeSome(data, size);
 }

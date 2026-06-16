@@ -11,7 +11,6 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <coro/Application.h>
-#include <coro/CoroPool.h>
 #include <coro/Timer.h>
 #include <coro/StreamSocket.h>
 #include <coro/Acceptor.h>
@@ -82,24 +81,29 @@ inline std::ostream& operator<<(std::ostream& stream, const cmdline& cmdline) {
 	return stream;
 }
 
-void remote_handler(HostMessageHandler& message_handler) {
+asio::awaitable<void> remote_handler(HostMessageHandler& message_handler) {
 #ifdef __QEMU__
 	std::shared_ptr<Channel> channel(new QemuLinuxChannel);
 	coro::Timer timer;
 	while (true) {
+		bool failed = false;
 		try {
-			message_handler.run(channel);
+			co_await message_handler.run(channel);
 		} catch (const std::exception& error) {
 			spdlog::error("Error inside QemuLinuxChannel loop: {}", error.what());
-			timer.waitFor(100ms);
+			failed = true;
+		}
+		// co_await is not allowed inside a catch handler, so we back off here.
+		if (failed) {
+			co_await timer.waitFor(100ms);
 		}
 	}
 #elif __HYPERV__
 	coro::Acceptor<hyperv::VSocketProtocol> acceptor(hyperv::VSocketEndpoint(HYPERV_PORT));
 	while (true) {
-		coro::StreamSocket<hyperv::VSocketProtocol> socket = acceptor.accept();
+		auto socket = co_await acceptor.accept();
 		try {
-			message_handler.run(std::make_shared<HyperVChannel>(std::move(socket)));
+			co_await message_handler.run(std::make_shared<HyperVChannel>(HyperVChannel::Socket(std::move(socket))));
 		} catch (const std::exception& error) {
 			spdlog::error("Error inside remote acceptor loop: {}", error.what());
 		}
@@ -118,31 +122,31 @@ struct LocalChannel: Channel {
 	LocalChannel(LocalChannel&& other);
 	LocalChannel& operator=(LocalChannel&& other);
 
-	size_t read(uint8_t* data, size_t size) override {
-		return socket.readSome(data, size);
+	asio::awaitable<size_t> read(uint8_t* data, size_t size) override {
+		co_return co_await socket.readSome(data, size);
 	}
 
-	size_t write(uint8_t* data, size_t size) override {
-		return socket.writeSome(data, size);
+	asio::awaitable<size_t> write(uint8_t* data, size_t size) override {
+		co_return co_await socket.writeSome(data, size);
 	}
 
 private:
 	Socket socket;
 };
 
-void local_handler(CLIMessageHandler& message_handler) {
+asio::awaitable<void> local_handler(CLIMessageHandler& message_handler) {
 	coro::Acceptor<asio::local::stream_protocol> acceptor("/var/run/testo-guest-additions.sock");
 	while (true) {
-		coro::StreamSocket<asio::local::stream_protocol> socket = acceptor.accept();
+		auto socket = co_await acceptor.accept();
 		try {
-			message_handler.run(std::make_shared<LocalChannel>(std::move(socket)));
+			co_await message_handler.run(std::make_shared<LocalChannel>(LocalChannel::Socket(std::move(socket))));
 		} catch (const std::exception& error) {
 			spdlog::error("Error inside local acceptor loop: {}", error.what());
 		}
 	}
 }
 
-std::thread run_async(std::function<void()> fn_) {
+std::thread run_async(std::function<asio::awaitable<void>()> fn_) {
 	return std::thread([fn = std::move(fn_)] {
 		coro::Application(fn).run();
 	});
@@ -152,8 +156,8 @@ void run_handlers() {
 	HostMessageHandler host_handler;
 	CLIMessageHandler cli_handler(&host_handler);
 
-	std::thread t1 = run_async([&] { remote_handler(host_handler); });
-	std::thread t2 = run_async([&] { local_handler(cli_handler); });
+	std::thread t1 = run_async([&]() -> asio::awaitable<void> { co_await remote_handler(host_handler); });
+	std::thread t2 = run_async([&]() -> asio::awaitable<void> { co_await local_handler(cli_handler); });
 
 	t1.join();
 	t2.join();

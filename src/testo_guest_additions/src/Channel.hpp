@@ -2,14 +2,18 @@
 #pragma once
 
 #include <nlohmann/json.hpp>
+#include <coro/Runtime.h>
+#include <cstdint>
 
 struct Channel {
-	nlohmann::json receive();
-	void send(nlohmann::json response);
+	virtual ~Channel() = default;
 
-	void receive_raw(uint8_t* data, size_t size);
-	void send_raw(uint8_t* data, size_t size);
+	asio::awaitable<nlohmann::json> receive();
+	asio::awaitable<void> send(nlohmann::json response);
 
-	virtual size_t read(uint8_t* data, size_t size) = 0;
-	virtual size_t write(uint8_t* data, size_t size) = 0;
+	asio::awaitable<void> receive_raw(uint8_t* data, size_t size);
+	asio::awaitable<void> send_raw(uint8_t* data, size_t size);
+
+	virtual asio::awaitable<size_t> read(uint8_t* data, size_t size) = 0;
+	virtual asio::awaitable<size_t> write(uint8_t* data, size_t size) = 0;
 };
