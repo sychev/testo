@@ -7,18 +7,19 @@
 #include "../IR/Macro.hpp"
 #include "../report/Reporter.hpp"
 #include "../Configs.hpp"
+#include <coro/Runtime.h>
 
 struct VisitorInterpreter {
 	VisitorInterpreter(const VisitorInterpreterConfig& config);
 	~VisitorInterpreter();
 
-	void visit();
-	void visit_test(const std::shared_ptr<IR::Test>& test);
-	void visit_command_block(const std::shared_ptr<AST::Block<AST::Cmd>>& block);
-	void visit_command(const std::shared_ptr<AST::Cmd>& cmd);
-	void visit_macro_call(const IR::MacroCall& macro_call);
-	void visit_macro_body(const std::shared_ptr<AST::Block<AST::Cmd>>& macro_body);
-	void visit_regular_command(const IR::RegularCommand& regular_cmd);
+	asio::awaitable<void> visit();
+	asio::awaitable<void> visit_test(const std::shared_ptr<IR::Test>& test);
+	asio::awaitable<void> visit_command_block(const std::shared_ptr<AST::Block<AST::Cmd>>& block);
+	asio::awaitable<void> visit_command(const std::shared_ptr<AST::Cmd>& cmd);
+	asio::awaitable<void> visit_macro_call(const IR::MacroCall& macro_call);
+	asio::awaitable<void> visit_macro_body(const std::shared_ptr<AST::Block<AST::Cmd>>& macro_body);
+	asio::awaitable<void> visit_regular_command(const IR::RegularCommand& regular_cmd);
 
 	std::shared_ptr<StackNode> stack;
 
@@ -48,13 +49,13 @@ private:
 	std::shared_ptr<IR::Test> current_test;
 	Reporter reporter;
 
-	void delete_parents_hypervisor_snapshots_if_needed(const std::shared_ptr<IR::Test>& test);
-	void restore_parents_controllers_if_needed(const std::shared_ptr<IR::Test>& test);
+	asio::awaitable<void> delete_parents_hypervisor_snapshots_if_needed(const std::shared_ptr<IR::Test>& test);
+	asio::awaitable<void> restore_parents_controllers_if_needed(const std::shared_ptr<IR::Test>& test);
 	void create_networks_if_needed(const std::shared_ptr<IR::Test>& test);
-	void install_new_controllers_if_needed(const std::shared_ptr<IR::Test>& test);
+	asio::awaitable<void> install_new_controllers_if_needed(const std::shared_ptr<IR::Test>& test);
 	void resume_parents_vms(const std::shared_ptr<IR::Test>& test);
 	void suspend_all_vms(const std::shared_ptr<IR::Test>& test);
-	void create_all_controllers_snapshots(const std::shared_ptr<IR::Test>& test);
+	asio::awaitable<void> create_all_controllers_snapshots(const std::shared_ptr<IR::Test>& test);
 
 	void stop_all_vms(const std::shared_ptr<IR::Test>& test);
 };

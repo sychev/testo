@@ -3,6 +3,7 @@
 
 #include "Object.hpp"
 #include "../Exceptions.hpp"
+#include <coro/Runtime.h>
 #include <fmt/format.h>
 
 namespace IR {
@@ -80,7 +81,7 @@ struct MacroCall: Node<AST::IMacroCall> {
 	}
 
 	template <typename Item, typename Visitor>
-	void visit_interpreter(Visitor* visitor) const {
+	asio::awaitable<void> visit_interpreter(Visitor* visitor) const {
 		const std::shared_ptr<IR::Macro> macro = get_macro();
 
 		StackPusher<Visitor> new_ctx(visitor, macro->new_stack(vars()));
@@ -91,7 +92,7 @@ struct MacroCall: Node<AST::IMacroCall> {
 		}
 
 		try {
-			visitor->visit_macro_body(p);
+			co_await visitor->visit_macro_body(p);
 		} catch (const std::exception& error) {
 			std::throw_with_nested(ExceptionWithPos(ast_node->begin(), "In a macro call " + ast_node->to_string()));
 		}

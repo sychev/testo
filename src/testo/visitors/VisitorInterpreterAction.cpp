@@ -8,10 +8,11 @@
 
 extern std::atomic<bool> REPL_mode_is_active;
 
-void VisitorInterpreterAction::visit_action_block(std::shared_ptr<AST::Block<AST::Action>> action_block) {
+asio::awaitable<void> VisitorInterpreterAction::visit_action_block(std::shared_ptr<AST::Block<AST::Action>> action_block) {
 	for (auto action: action_block->items) {
-		visit_action(action);
+		co_await visit_action(action);
 	}
+	co_return;
 }
 
 void VisitorInterpreterAction::visit_print(const IR::Print& print) {
@@ -44,10 +45,10 @@ static inline void trim(std::string &s) {
 }
 
 
-void VisitorInterpreterAction::visit_repl(const IR::REPL& repl) {
+asio::awaitable<void> VisitorInterpreterAction::visit_repl(const IR::REPL& repl) {
 	TRACE();
 	if (ignore_repl) {
-		return;
+		co_return;
 	}
 	try {
 		reporter.repl_begin(current_controller, repl);
@@ -69,7 +70,7 @@ void VisitorInterpreterAction::visit_repl(const IR::REPL& repl) {
 			line += "\n";
 			try {
 				std::shared_ptr<AST::Action> ast_action = Parser(".", line, false).action();
-				visit_action(ast_action);
+				co_await visit_action(ast_action);
 				all_lines += line;
 			}
 			catch (const AbortException&) {
@@ -102,41 +103,42 @@ void VisitorInterpreterAction::visit_bug(const IR::Bug& bug) {
 	reporter.bug(current_controller, bug);
 }
 
-void VisitorInterpreterAction::visit_sleep(const IR::Sleep& sleep) {
+asio::awaitable<void> VisitorInterpreterAction::visit_sleep(const IR::Sleep& sleep) {
 	TRACE();
 	reporter.sleep(current_controller, sleep);
 	coro::Timer timer;
-	timer.waitFor(sleep.timeout().value());
+	co_await timer.waitFor(sleep.timeout().value());
 }
 
-void VisitorInterpreterAction::visit_macro_call(const IR::MacroCall& macro_call) {
+asio::awaitable<void> VisitorInterpreterAction::visit_macro_call(const IR::MacroCall& macro_call) {
 	TRACE();
 	reporter.macro_action_call(current_controller, macro_call);
-	macro_call.visit_interpreter<AST::Action>(this);
+	co_await macro_call.visit_interpreter<AST::Action>(this);
 }
 
-void VisitorInterpreterAction::visit_macro_body(const std::shared_ptr<AST::Block<AST::Action>>& macro_body) {
+asio::awaitable<void> VisitorInterpreterAction::visit_macro_body(const std::shared_ptr<AST::Block<AST::Action>>& macro_body) {
 	TRACE();
-	visit_action_block(macro_body);
+	co_await visit_action_block(macro_body);
 }
 
-void VisitorInterpreterAction::visit_if_clause(std::shared_ptr<AST::IfClause> if_clause) {
+asio::awaitable<void> VisitorInterpreterAction::visit_if_clause(std::shared_ptr<AST::IfClause> if_clause) {
 	TRACE();
 	bool expr_result;
 	try {
-		expr_result = visit_expr(if_clause->expr);
+		expr_result = co_await visit_expr(if_clause->expr);
 	} catch (const std::exception& error) {
 		std::throw_with_nested(ActionException(if_clause, current_controller));
 	}
 	//everything else should be caught at test level
 	if (expr_result) {
-		return visit_action(if_clause->if_action);
+		co_await visit_action(if_clause->if_action);
 	} else if (if_clause->has_else()) {
-		return visit_action(if_clause->else_action);
+		co_await visit_action(if_clause->else_action);
 	}
+	co_return;
 }
 
-void VisitorInterpreterAction::visit_for_clause(std::shared_ptr<AST::ForClause> for_clause) {
+asio::awaitable<void> VisitorInterpreterAction::visit_for_clause(std::shared_ptr<AST::ForClause> for_clause) {
 	TRACE();
 
 	uint32_t i = 0;
@@ -158,7 +160,7 @@ void VisitorInterpreterAction::visit_for_clause(std::shared_ptr<AST::ForClause> 
 			new_stack->parent = stack;
 			new_stack->params = params;
 			StackPusher<VisitorInterpreterAction> new_ctx(this, new_stack);
-				visit_action(for_clause->cycle_body);
+				co_await visit_action(for_clause->cycle_body);
 
 		} catch (const CycleControlException& cycle_control) {
 			if (cycle_control.token.type() == Token::category::break_) {
@@ -172,50 +174,51 @@ void VisitorInterpreterAction::visit_for_clause(std::shared_ptr<AST::ForClause> 
 	}
 
 	if ((i == values.size()) && for_clause->else_token) {
-		visit_action(for_clause->else_action);
+		co_await visit_action(for_clause->else_action);
 	}
+	co_return;
 }
 
-bool VisitorInterpreterAction::visit_expr(std::shared_ptr<AST::Expr> expr) {
+asio::awaitable<bool> VisitorInterpreterAction::visit_expr(std::shared_ptr<AST::Expr> expr) {
 	if (auto p = std::dynamic_pointer_cast<AST::BinOp>(expr)) {
-		return visit_binop(p);
+		co_return co_await visit_binop(p);
 	} else if (auto p = std::dynamic_pointer_cast<AST::StringExpr>(expr)) {
 		std::shared_ptr<IR::Machine> vmc = std::dynamic_pointer_cast<IR::Machine>(current_controller);
-		return visit_string_expr({ p->str, stack, vmc ? vmc->get_vars() : nullptr });
+		co_return visit_string_expr({ p->str, stack, vmc ? vmc->get_vars() : nullptr });
 	} else if (auto p = std::dynamic_pointer_cast<AST::Negation>(expr)) {
-		return !visit_expr(p->expr);
+		co_return !(co_await visit_expr(p->expr));
 	} else if (auto p = std::dynamic_pointer_cast<AST::Comparison>(expr)) {
 		std::shared_ptr<IR::Machine> vmc = std::dynamic_pointer_cast<IR::Machine>(current_controller);
-		return visit_comparison({ p, stack, vmc ? vmc->get_vars() : nullptr });
+		co_return visit_comparison({ p, stack, vmc ? vmc->get_vars() : nullptr });
 	} else if (auto p = std::dynamic_pointer_cast<AST::Defined>(expr)) {
-		return visit_defined({ p, stack });
+		co_return visit_defined({ p, stack });
 	} else if (auto p = std::dynamic_pointer_cast<AST::Check>(expr)) {
 		std::shared_ptr<IR::Machine> vmc = std::dynamic_pointer_cast<IR::Machine>(current_controller);
 		if (!vmc) {
 			throw std::runtime_error("\"check\" expression is only available for VMs");
 		}
-		return visit_check({ p, stack, vmc->get_vars() });
+		co_return co_await visit_check({ p, stack, vmc->get_vars() });
 	} else if (auto p = std::dynamic_pointer_cast<AST::ParentedExpr>(expr)) {
-		return visit_expr(p->expr);
+		co_return co_await visit_expr(p->expr);
 	} else {
 		throw std::runtime_error("Unknown expr type");
 	}
 }
 
-bool VisitorInterpreterAction::visit_binop(std::shared_ptr<AST::BinOp> binop) {
-	auto left = visit_expr(binop->left);
+asio::awaitable<bool> VisitorInterpreterAction::visit_binop(std::shared_ptr<AST::BinOp> binop) {
+	auto left = co_await visit_expr(binop->left);
 
 	if (binop->op.value() == "AND") {
 		if (!left) {
-			return left;
+			co_return left;
 		} else {
-			return visit_expr(binop->right);
+			co_return co_await visit_expr(binop->right);
 		}
 	} else if (binop->op.value() == "OR") {
 		if (left) {
-			return left;
+			co_return left;
 		} else {
-			return visit_expr(binop->right);
+			co_return co_await visit_expr(binop->right);
 		}
 	} else {
 		throw std::runtime_error("Unknown binop operation");

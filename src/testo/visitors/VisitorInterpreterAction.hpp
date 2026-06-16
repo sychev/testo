@@ -7,6 +7,7 @@
 #include "../IR/Macro.hpp"
 #include "../IR/Expr.hpp"
 #include "../report/Reporter.hpp"
+#include <coro/Runtime.h>
 
 struct ActionException: ExceptionWithPos {
 	ActionException(const std::shared_ptr<AST::Node>& node, const std::shared_ptr<IR::Controller>& controller):
@@ -51,23 +52,23 @@ struct VisitorInterpreterAction {
 
 	virtual ~VisitorInterpreterAction() {}
 
-	virtual void visit_action(std::shared_ptr<AST::Action> action) = 0;
-	virtual void visit_copy(const IR::Copy& copy) = 0;
-	virtual bool visit_check(const IR::Check& check) = 0;
+	virtual asio::awaitable<void> visit_action(std::shared_ptr<AST::Action> action) = 0;
+	virtual asio::awaitable<void> visit_copy(const IR::Copy& copy) = 0;
+	virtual asio::awaitable<bool> visit_check(const IR::Check& check) = 0;
 
-	void visit_action_block(std::shared_ptr<AST::Block<AST::Action>> action_block);
+	asio::awaitable<void> visit_action_block(std::shared_ptr<AST::Block<AST::Action>> action_block);
 	void visit_print(const IR::Print& print);
-	void visit_repl(const IR::REPL& repl);
+	asio::awaitable<void> visit_repl(const IR::REPL& repl);
 	void visit_abort(const IR::Abort& abort);
 	void visit_bug(const IR::Bug& abort);
-	void visit_sleep(const IR::Sleep& sleep);
-	void visit_macro_call(const IR::MacroCall& macro_call);
-	void visit_macro_body(const std::shared_ptr<AST::Block<AST::Action>>& macro_body);
-	void visit_if_clause(std::shared_ptr<AST::IfClause> if_clause);
-	void visit_for_clause(std::shared_ptr<AST::ForClause> for_clause);
+	asio::awaitable<void> visit_sleep(const IR::Sleep& sleep);
+	asio::awaitable<void> visit_macro_call(const IR::MacroCall& macro_call);
+	asio::awaitable<void> visit_macro_body(const std::shared_ptr<AST::Block<AST::Action>>& macro_body);
+	asio::awaitable<void> visit_if_clause(std::shared_ptr<AST::IfClause> if_clause);
+	asio::awaitable<void> visit_for_clause(std::shared_ptr<AST::ForClause> for_clause);
 
-	bool visit_expr(std::shared_ptr<AST::Expr> expr);
-	bool visit_binop(std::shared_ptr<AST::BinOp> binop);
+	asio::awaitable<bool> visit_expr(std::shared_ptr<AST::Expr> expr);
+	asio::awaitable<bool> visit_binop(std::shared_ptr<AST::BinOp> binop);
 	bool visit_string_expr(const IR::String& string_expr);
 	bool visit_comparison(const IR::Comparison& comparison);
 	bool visit_defined(const IR::Defined& defined);
