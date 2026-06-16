@@ -7,19 +7,19 @@
 
 #ifdef __linux__
 struct GA: CLIGuestAdditions {
-	GA() {
-		socket.connect("/var/run/testo-guest-additions.sock");
-	}
+	// The connect is synchronous (blocking) so that GA can be constructed
+	// outside of a coroutine; the I/O afterwards is asynchronous.
+	GA(): socket(asio::local::stream_protocol::endpoint("/var/run/testo-guest-additions.sock")) {}
 
 private:
-	void send_raw(const uint8_t* data, size_t size) override {
-		size_t n = socket.write(data, size);
+	asio::awaitable<void> send_raw(const uint8_t* data, size_t size) override {
+		size_t n = co_await socket.write(data, size);
 		if (n != size) {
 			throw std::runtime_error(__PRETTY_FUNCTION__);
 		}
 	}
-	void recv_raw(uint8_t* data, size_t size) override {
-		size_t n = socket.read(data, size);
+	asio::awaitable<void> recv_raw(uint8_t* data, size_t size) override {
+		size_t n = co_await socket.read(data, size);
 		if (n != size) {
 			throw std::runtime_error(__PRETTY_FUNCTION__);
 		}
@@ -35,13 +35,15 @@ struct GA: CLIGuestAdditions {
 	}
 
 private:
-	void send_raw(const uint8_t* data, size_t size) override {
+	asio::awaitable<void> send_raw(const uint8_t* data, size_t size) override {
 		// IMPLEMENT ME!!!!
 		throw std::runtime_error(__PRETTY_FUNCTION__);
+		co_return;
 	}
-	void recv_raw(uint8_t* data, size_t size) override {
+	asio::awaitable<void> recv_raw(uint8_t* data, size_t size) override {
 		// IMPLEMENT ME!!!!
 		throw std::runtime_error(__PRETTY_FUNCTION__);
+		co_return;
 	}
 };
 #endif
@@ -67,26 +69,26 @@ struct GetArgs {
 	std::string var_name;
 };
 
-void mount_mode(const MountArgs& args) {
-	bool was_indeed_mounted = GA().mount(args.folder_name, fs::absolute(args.guest_path), args.permanent);
+asio::awaitable<void> mount_mode(const MountArgs& args) {
+	bool was_indeed_mounted = co_await GA().mount(args.folder_name, fs::absolute(args.guest_path), args.permanent);
 	if (!was_indeed_mounted) {
 		std::cout << "The shared folder is already mounted" << std::endl;
 	}
 }
 
-void umount_mode(const UmountArgs& args) {
-	bool was_indeed_umounted = GA().umount(args.folder_name, args.permanent);
+asio::awaitable<void> umount_mode(const UmountArgs& args) {
+	bool was_indeed_umounted = co_await GA().umount(args.folder_name, args.permanent);
 	if (!was_indeed_umounted) {
 		std::cout << "The shared folder is already umounted" << std::endl;
 	}
 }
 
-void set_mode(const SetArgs& args) {
-	GA().set_var(args.var_name, args.var_value, args.global);
+asio::awaitable<void> set_mode(const SetArgs& args) {
+	co_await GA().set_var(args.var_name, args.var_value, args.global);
 }
 
-void get_mode(const GetArgs& args) {
-	std::string var_value = GA().get_var(args.var_name);
+asio::awaitable<void> get_mode(const GetArgs& args) {
+	std::string var_value = co_await GA().get_var(args.var_name);
 	std::cout << var_value;
 }
 
@@ -99,7 +101,7 @@ enum class mode {
 
 mode selected_mode;
 
-int do_main(int argc, char** argv) {
+asio::awaitable<int> do_main(int argc, char** argv) {
 
 	using namespace clipp;
 
@@ -138,35 +140,35 @@ int do_main(int argc, char** argv) {
 
 	if (!parse(argc, argv, cli)) {
 		std::cout << make_man_page(cli, argv[0]) << std::endl;
-		return 1;
+		co_return 1;
 	}
 
 	switch (selected_mode) {
 		case mode::mount:
-			mount_mode(mount_args);
+			co_await mount_mode(mount_args);
 			break;
 		case mode::umount:
-			umount_mode(umount_args);
+			co_await umount_mode(umount_args);
 			break;
 		case mode::set:
-			set_mode(set_args);
+			co_await set_mode(set_args);
 			break;
 		case mode::get:
-			get_mode(get_args);
+			co_await get_mode(get_args);
 			break;
 		default:
 			throw std::runtime_error("Invalid mode");
 	}
 
-	return 0;
+	co_return 0;
 }
 
 int main(int argc, char** argv) {
 	int result = 0;
 
-	coro::Application([&]{
+	coro::Application([&]() -> asio::awaitable<void> {
 		try {
-			result = do_main(argc, argv);
+			result = co_await do_main(argc, argv);
 		} catch (const std::exception& error) {
 			std::cerr << error.what() << std::endl;
 			result = 1;

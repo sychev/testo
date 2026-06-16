@@ -2,7 +2,7 @@
 // detail/win_iocp_socket_recv_op.hpp
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //
-// Copyright (c) 2003-2019 Christopher M. Kohlhoff (chris at kohlhoff dot com)
+// Copyright (c) 2003-2025 Christopher M. Kohlhoff (chris at kohlhoff dot com)
 //
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
@@ -23,7 +23,7 @@
 #include "asio/detail/buffer_sequence_adapter.hpp"
 #include "asio/detail/fenced_block.hpp"
 #include "asio/detail/handler_alloc_helpers.hpp"
-#include "asio/detail/handler_invoke_helpers.hpp"
+#include "asio/detail/handler_work.hpp"
 #include "asio/detail/memory.hpp"
 #include "asio/detail/operation.hpp"
 #include "asio/detail/socket_ops.hpp"
@@ -48,10 +48,9 @@ public:
       state_(state),
       cancel_token_(cancel_token),
       buffers_(buffers),
-      handler_(ASIO_MOVE_CAST(Handler)(handler)),
-      io_executor_(io_ex)
+      handler_(static_cast<Handler&&>(handler)),
+      work_(handler_, io_ex)
   {
-    handler_work<Handler, IoExecutor>::start(handler_, io_executor_);
   }
 
   static void do_complete(void* owner, operation* base,
@@ -61,11 +60,16 @@ public:
     asio::error_code ec(result_ec);
 
     // Take ownership of the operation object.
+    ASIO_ASSUME(base != 0);
     win_iocp_socket_recv_op* o(static_cast<win_iocp_socket_recv_op*>(base));
     ptr p = { asio::detail::addressof(o->handler_), o, o };
-    handler_work<Handler, IoExecutor> w(o->handler_, o->io_executor_);
 
     ASIO_HANDLER_COMPLETION((*o));
+
+    // Take ownership of the operation's outstanding work.
+    handler_work<Handler, IoExecutor> w(
+        static_cast<handler_work<Handler, IoExecutor>&&>(
+          o->work_));
 
 #if defined(ASIO_ENABLE_BUFFER_DEBUGGING)
     // Check whether buffers are still valid.
@@ -80,6 +84,8 @@ public:
         buffer_sequence_adapter<asio::mutable_buffer,
           MutableBufferSequence>::all_empty(o->buffers_),
         ec, bytes_transferred);
+
+    ASIO_ERROR_LOCATION(ec);
 
     // Make a copy of the handler so that the memory can be deallocated before
     // the upcall is made. Even if we're not about to make an upcall, a
@@ -107,7 +113,7 @@ private:
   socket_ops::weak_cancel_token_type cancel_token_;
   MutableBufferSequence buffers_;
   Handler handler_;
-  IoExecutor io_executor_;
+  handler_work<Handler, IoExecutor> work_;
 };
 
 } // namespace detail
