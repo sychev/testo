@@ -1,45 +1,45 @@
 
+#include "coro/CoroPool.h"
 #include "coro/Queue.h"
 #include <catch.hpp>
+#include <vector>
 
 using namespace coro;
 
-TEST_CASE("A basic queue test") {
-	std::vector<uint32_t> actual, expected = {0, 1, 2, 3};
+TEST_CASE("Queue passes items between coroutines", "[Queue]") {
+	Queue<int> queue;
+	std::vector<int> got;
 
-	Queue<uint32_t> queue;
-
-	Coro consumer([&] {
-		for (uint32_t i = 0; i < 4; ++i) {
-			actual.push_back(queue.pop());
+	CoroPool pool;
+	pool.exec([&] {
+		for (int i = 0; i < 4; ++i) {
+			got.push_back(queue.pop());
 		}
 	});
-	Coro producer([&] {
-		for (uint32_t i = 0; i < 4; ++i) {
+	pool.exec([&] {
+		for (int i = 0; i < 4; ++i) {
 			queue.push(i);
 		}
 	});
-	consumer.start();
-	producer.start();
+	pool.waitAll();
 
-	REQUIRE(actual == expected);
+	REQUIRE(got == std::vector<int>{0, 1, 2, 3});
 }
 
+TEST_CASE("Cancelling a coroutine blocked on Queue::pop", "[Queue]") {
+	Queue<int> queue;
+	bool cancelled = false;
 
-TEST_CASE("Throw exception from Queue::pop") {
-	std::vector<uint32_t> actual, expected = {};
+	CoroPool pool;
+	pool.exec([&] {
+		try {
+			queue.pop();
+		}
+		catch (const CancelError&) {
+			cancelled = true;
+		}
+	})->cancel();
+	pool.waitAll();
 
-	Queue<uint32_t> queue;
-
-	Coro consumer([&] {
-		actual.push_back(queue.pop());
-	});
-	Coro producer([&] {
-		queue.push(0);
-	});
-	consumer.start();
-	consumer.cancel();
-	producer.start();
-
-	REQUIRE(actual == expected);
+	REQUIRE(cancelled);
 }

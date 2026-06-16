@@ -2,101 +2,72 @@
 #pragma once
 
 #include <asio.hpp>
+#include <asio/experimental/channel_error.hpp>
 #include "coro/Coro.h"
+#include "coro/Timeout.h"
 #include <system_error>
-#include <tuple>
-#include <cassert>
 
 namespace coro {
 
 namespace detail {
 
 /*!
-	@brief Ожидание завершения асинхронной операции asio внутри корутины
+	@brief Разобрать результат завершённой async-операции
 
-	Заменяет прежний AsioTask со строковыми токенами и std::function-callback'ами. Операция
-	инициируется handler'ом, к которому привязан cancellation_slot — поэтому при инъекции
-	исключения в корутину (таймаут / cancel) ожидание отменяется адресной отменой именно этой
-	операции (cancellation_type::terminal), а не cancel() всего хэндла.
-
-	AsyncOp размещается на стеке корутины, поэтому handler может безопасно держать на него
-	указатель: на пути отмены мы дожидаемся фактического вызова handler'а перед возвратом.
+	operation_aborted означает, что операцию отменили снаружи: либо это запрошенная отмена
+	корутины (CancelError), либо сработавший Timeout (TimeoutError). Остальные ошибки
+	пробрасываются как system_error.
 */
-template <typename... Results>
-class AsyncOp {
-public:
-	/// Completion handler для передачи в инициирующую функцию asio
-	auto handler() {
-		return asio::bind_cancellation_slot(_signal.slot(),
-			[this](const std::error_code& errorCode, Results... results) {
-				_finished = true;
-				_errorCode = errorCode;
-				_results = std::tuple<Results...>(std::move(results)...);
-				_coro->wake(this);
-			});
-	}
-
-	/// Дождаться завершения операции, транслируя исключения корутины в отмену операции
-	void wait() {
-		try {
-			_coro->suspend(this, /* interruptible = */ true);
+inline void checkAbort(Coro* self, const std::error_code& errorCode) {
+	// Отмену по cancellation_slot socket/timer-операции asio сообщает как operation_aborted,
+	// а операции каналов (Queue/Mutex) — как channel_cancelled. Оба случая — это отмена корутины.
+	if (errorCode == asio::error::operation_aborted ||
+	    errorCode == asio::experimental::error::channel_cancelled) {
+		if (Timeout* timeout = self->takePendingTimeout()) {
+			throw TimeoutError(timeout);
 		}
-		catch (...) {
-			auto exception = std::current_exception();
-			_signal.emit(asio::cancellation_type::terminal);
-			// Дожидаемся фактического завершения операции, чтобы handler не обратился к уже
-			// уничтоженному AsyncOp. На этом ожидании исключения не принимаем.
-			_coro->suspend(this, /* interruptible = */ false);
-			assert(_finished);
-			// не используйте здесь throw, gcc это не переваривает
-			std::rethrow_exception(exception);
-		}
-
-		if (_errorCode) {
-			throw std::system_error(_errorCode);
-		}
+		throw CancelError{};
 	}
-
-	template <std::size_t I>
-	auto&& result() {
-		return std::get<I>(std::move(_results));
+	if (errorCode) {
+		throw std::system_error(errorCode);
 	}
-
-private:
-	Coro* _coro = Coro::current();
-	asio::cancellation_signal _signal;
-	std::error_code _errorCode;
-	std::tuple<Results...> _results;
-	bool _finished = false;
-};
+}
 
 } // namespace detail
 
 /*!
-	@brief Инициировать асинхронную операцию asio без возвращаемого значения и дождаться её
+	@brief Инициировать async-операцию asio без возвращаемого значения и дождаться её
 
-	@param initiate вызываемый объект, принимающий completion handler и стартующий операцию,
-	                handler имеет сигнатуру (const std::error_code&)
+	Операция выполняется через yield_context текущей корутины (поэтому её завершение
+	сериализуется на strand корутины). После возобновления — возможно на ДРУГОМ потоке —
+	восстанавливаем thread_local "текущая корутина"; это и позволяет примитивам узнавать
+	текущую корутину, не таская yield в каждой сигнатуре (невирусный публичный API).
+
+	@param initiate вызываемый объект, принимающий completion token и стартующий операцию.
 */
 template <typename Initiate>
 void awaitOp(Initiate&& initiate) {
-	detail::AsyncOp<> op;
-	initiate(op.handler());
-	op.wait();
+	Coro* self = Coro::current();
+	std::error_code errorCode;
+	initiate(self->yield()[errorCode]);
+	Coro::setCurrent(self);
+	detail::checkAbort(self, errorCode);
 }
 
 /*!
-	@brief Инициировать асинхронную операцию asio с одним возвращаемым значением и дождаться её
+	@brief Инициировать async-операцию asio с возвращаемым значением и дождаться её
 
-	@param initiate вызываемый объект, принимающий completion handler и стартующий операцию,
-	                handler имеет сигнатуру (const std::error_code&, Result)
+	@param initiate вызываемый объект, принимающий completion token, стартующий операцию
+	                и ВОЗВРАЩАЮЩИЙ её результат.
 */
 template <typename Result, typename Initiate>
 Result awaitValue(Initiate&& initiate) {
-	detail::AsyncOp<Result> op;
-	initiate(op.handler());
-	op.wait();
-	return op.template result<0>();
+	Coro* self = Coro::current();
+	std::error_code errorCode;
+	Result result = initiate(self->yield()[errorCode]);
+	Coro::setCurrent(self);
+	detail::checkAbort(self, errorCode);
+	return result;
 }
 
 }

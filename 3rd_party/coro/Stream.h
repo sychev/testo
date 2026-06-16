@@ -19,29 +19,33 @@ public:
 
 	template <typename ...T>
 	size_t write(T&&... t) {
-		return awaitValue<size_t>([&](auto&& handler) {
-			asio::async_write(_handle, asio::buffer(std::forward<T>(t)...), std::forward<decltype(handler)>(handler));
+		return awaitValue<size_t>([&](auto&& token) {
+			return asio::async_write(_handle, asio::buffer(std::forward<T>(t)...),
+			                         std::forward<decltype(token)>(token));
 		});
 	}
 
 	template <typename ...T>
 	size_t read(T&&... t) {
-		return awaitValue<size_t>([&](auto&& handler) {
-			asio::async_read(_handle, asio::buffer(std::forward<T>(t)...), std::forward<decltype(handler)>(handler));
+		return awaitValue<size_t>([&](auto&& token) {
+			return asio::async_read(_handle, asio::buffer(std::forward<T>(t)...),
+			                        std::forward<decltype(token)>(token));
 		});
 	}
 
 	template <typename ...T>
 	size_t writeSome(T&&... t) {
-		return awaitValue<size_t>([&](auto&& handler) {
-			_handle.async_write_some(asio::buffer(std::forward<T>(t)...), std::forward<decltype(handler)>(handler));
+		return awaitValue<size_t>([&](auto&& token) {
+			return _handle.async_write_some(asio::buffer(std::forward<T>(t)...),
+			                                std::forward<decltype(token)>(token));
 		});
 	}
 
 	template <typename ...T>
 	size_t readSome(T&&... t) {
-		return awaitValue<size_t>([&](auto&& handler) {
-			_handle.async_read_some(asio::buffer(std::forward<T>(t)...), std::forward<decltype(handler)>(handler));
+		return awaitValue<size_t>([&](auto&& token) {
+			return _handle.async_read_some(asio::buffer(std::forward<T>(t)...),
+			                               std::forward<decltype(token)>(token));
 		});
 	}
 

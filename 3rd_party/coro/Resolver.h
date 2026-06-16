@@ -22,8 +22,8 @@ public:
 	Resolver(): _handle(IoService::current()->_impl) {}
 
 	Results resolve(const InternetProtocol& protocol, const std::string& host, const std::string& service) {
-		return awaitValue<Results>([&](auto&& handler) {
-			_handle.async_resolve(protocol, host, service, std::forward<decltype(handler)>(handler));
+		return awaitValue<Results>([&](auto&& token) {
+			return _handle.async_resolve(protocol, host, service, std::forward<decltype(token)>(token));
 		});
 	}
 

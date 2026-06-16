@@ -1,50 +1,57 @@
 
-#include "coro/Timer.h"
 #include "coro/CoroPool.h"
+#include "coro/Queue.h"
+#include "coro/Timer.h"
 #include <catch.hpp>
 
 using namespace coro;
 using namespace std::chrono_literals;
 
-TEST_CASE("CoroPool::wait", "[CoroPool]") {
-	std::vector<uint8_t> result;
+TEST_CASE("CoroPool waits for all children", "[CoroPool]") {
+	int done = 0;
 
 	CoroPool pool;
-
-	pool.exec([&]() {
-		result.push_back(1);
+	pool.exec([&] {
+		Timer timer;
+		timer.waitFor(5ms);
+		++done;
 	});
-	pool.exec([&]() {
-		result.push_back(2);
+	pool.exec([&] {
+		Timer timer;
+		timer.waitFor(5ms);
+		++done;
 	});
+	pool.waitAll();
 
-	REQUIRE_NOTHROW(pool.waitAll(false));
-
-	REQUIRE(result.size() == 2);
+	REQUIRE(done == 2);
 }
 
-
-TEST_CASE("CoroPool::cancelAll", "[CoroPool]") {
+TEST_CASE("CoroPool::cancelAll cancels blocked children", "[CoroPool]") {
 	CoroPool pool;
-
 	pool.exec([] {
-		Coro::current()->suspend(nullptr);
+		Queue<int> queue;
+		queue.pop();   // блокируется навсегда
 	});
 	pool.exec([] {
-		Coro::current()->suspend(nullptr);
+		Queue<int> queue;
+		queue.pop();
 	});
 
 	pool.cancelAll();
 	REQUIRE_NOTHROW(pool.waitAll(false));
 }
 
-TEST_CASE("CoroPool::cancelAll crash", "[CoroPool]") {
-	CoroPool pool;
-	for (int i = 0; i < 20; i++) {
-		pool.exec([] {
-			// Nothing
+TEST_CASE("CoroPool destructor cancels and waits", "[CoroPool]") {
+	bool started = false;
+	{
+		CoroPool pool;
+		pool.exec([&] {
+			started = true;
+			Queue<int> queue;
+			queue.pop();   // блокируется; деструктор пула отменит и дождётся
 		});
+		Timer timer;
+		timer.waitFor(5ms);   // даём корутине стартовать
 	}
-	pool.cancelAll();
-	REQUIRE_NOTHROW(pool.waitAll(false));
+	REQUIRE(started);
 }

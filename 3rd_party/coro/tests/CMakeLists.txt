@@ -7,3 +7,5 @@ target_link_libraries(coro_tests coro)
 if (UNIX)
 	target_link_libraries(coro_tests pthread)
 endif()
+
+add_subdirectory(benchmark)

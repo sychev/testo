@@ -3,16 +3,21 @@
 
 #include <asio.hpp>
 #include <functional>
-#include <queue>
+#include <stdexcept>
 
 namespace coro {
 
-/// Wrapper вокруг asio::io_context
+/*!
+	@brief Wrapper вокруг общего asio::io_context
+
+	В MT-модели io_context один на всё приложение и крутится на нескольких потоках
+	(см. Application). current() возвращает этот единственный экземпляр; он выставляется до
+	старта рабочих потоков и далее только читается, поэтому потокобезопасен без блокировок.
+*/
 class IoService {
 public:
 	static IoService* current();
-
-	void run();
+	static void setCurrent(IoService* ioService);
 
 	template <typename T>
 	void post(T&& t) {
@@ -23,8 +28,6 @@ public:
 	void dispatch(T&& t) {
 		asio::dispatch(_impl, std::forward<T>(t));
 	}
-
-	std::queue<std::function<void()>> checkpoints;
 
 	asio::io_context _impl;
 };

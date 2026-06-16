@@ -39,9 +39,13 @@ public:
 	{
 		CoroPool coroPool;
 		while (true) {
-			auto socket = accept();
-			coroPool.exec([&] {
-				callback(std::move(socket));
+			// В MT-модели exec запускает обработчик АСИНХРОННО, поэтому принятый сокет нельзя
+			// захватывать по ссылке (к моменту запуска корутины локальная переменная уже была
+			// бы перезаписана следующим accept()). Передаём владение сокетом в корутину через
+			// shared_ptr — std::function требует копируемости, а move-only сокет в неё не лёг бы.
+			auto socket = std::make_shared<typename Protocol::socket>(accept());
+			coroPool.exec([callback, socket] {
+				callback(std::move(*socket));
 			});
 		}
 	}

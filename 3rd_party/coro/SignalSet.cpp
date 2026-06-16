@@ -1,6 +1,7 @@
 
 #include "coro/SignalSet.h"
 #include "coro/IoService.h"
+#include "coro/AsioTask.h"
 
 namespace coro {
 
@@ -13,8 +14,8 @@ SignalSet::SignalSet(const std::initializer_list<int32_t>& signals)
 }
 
 int32_t SignalSet::wait() {
-	return awaitValue<int>([&](auto&& handler) {
-		_handle.async_wait(std::forward<decltype(handler)>(handler));
+	return awaitValue<int>([&](auto&& token) {
+		return _handle.async_wait(std::forward<decltype(token)>(token));
 	});
 }
 

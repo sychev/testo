@@ -1,58 +1,40 @@
 
 #pragma once
 
-#include "coro/Coro.h"
-#include <coro/Finally.h>
-#include <queue>
-#include <list>
+#include "coro/AsioTask.h"
+#include "coro/IoService.h"
+#include <asio/experimental/concurrent_channel.hpp>
+#include <limits>
 
 namespace coro {
 
 /*!
-	@brief Ещё один примитив синхронизации корутин
+	@brief Очередь-канал между корутинами
 
-	@warning НЕ потокобезопасен!!!
+	Реализована поверх concurrent_channel, поэтому потокобезопасна: producer и consumer могут
+	жить в корутинах на разных потоках. pop() ожидает элемент (прерывается отменой корутины),
+	push() кладёт элемент неблокирующе.
 */
 template <typename T>
 class Queue {
 public:
-	/*!
-		@brief Получить элемент из очереди
+	Queue(): _channel(IoService::current()->_impl, std::numeric_limits<std::size_t>::max()) {}
 
-		Если очередь пуста, то происходит выход из корутины до тех пор пока очередь
-		не наполнится. Или до тех пор, пока корутина не будет отменена.
-	*/
+	/// Получить элемент (ждёт, если очередь пуста; может быть прерван отменой)
 	T pop() {
-		if (_data.empty()) {
-			Finally cleanup([&] {
-				_coros.remove(Coro::current());
-			});
-			_coros.push_back(Coro::current());
-			Coro::current()->suspend(this);
-		}
-
-		T t = std::move(_data.front());
-		_data.pop();
-		return t;
+		return awaitValue<T>([&](auto&& token) {
+			return _channel.async_receive(std::forward<decltype(token)>(token));
+		});
 	}
 
-	/// Положить элемент в очередь
+	/// Положить элемент (неблокирующе, безопасно с любого потока)
 	template <typename U>
 	void push(U&& u) {
-		_data.push(std::forward<U>(u));
-
-		if (!_coros.empty()) {
-			_coros.front()->wake(this);
-		}
-	}
-
-	size_t size() const {
-		return _data.size();
+		_channel.try_send(std::error_code{}, std::forward<U>(u));
 	}
 
 private:
-	std::queue<T> _data;
-	std::list<Coro*> _coros;
+	asio::experimental::concurrent_channel<void(std::error_code, T)> _channel;
 };
 
 }

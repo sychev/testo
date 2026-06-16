@@ -1,31 +1,28 @@
 
+#include "coro/CoroPool.h"
 #include "coro/Mutex.h"
+#include "coro/CheckPoint.h"
 #include <catch.hpp>
+#include <algorithm>
 
 using namespace coro;
 
-TEST_CASE("A basic mutex test") {
-	std::vector<uint8_t> actual, expected = {0, 1, 2, 3};
-
+TEST_CASE("Mutex provides mutual exclusion", "[Mutex]") {
 	Mutex mutex;
+	int inside = 0, maxInside = 0;
 
-	// Адрес локальной переменной выступает токеном ручного пробуждения coro1.
-	int token;
+	CoroPool pool;
+	for (int i = 0; i < 5; ++i) {
+		pool.exec([&] {
+			std::lock_guard<Mutex> lock(mutex);
+			++inside;
+			maxInside = std::max(maxInside, inside);
+			CheckPoint();   // уступаем управление, удерживая мьютекс
+			--inside;
+		});
+	}
+	pool.waitAll();
 
-	Coro coro1([&] {
-		std::lock_guard<Mutex> lock(mutex);
-		actual.push_back(0);
-		Coro::current()->suspend(&token);
-		actual.push_back(2);
-	});
-	Coro coro2([&] {
-		actual.push_back(1);
-		std::lock_guard<Mutex> lock(mutex);
-		actual.push_back(3);
-	});
-	coro1.start();
-	coro2.start();
-	coro1.wake(&token);
-
-	REQUIRE(actual == expected);
+	// Если мьютекс работает, в критической секции одновременно не более одной корутины.
+	REQUIRE(maxInside == 1);
 }

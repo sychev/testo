@@ -1,167 +1,95 @@
 
 #include "coro/Coro.h"
-#include <cassert>
-#include <stdexcept>
-
-#ifdef _DEBUG
-#ifndef WIN32
-#include <cxxabi.h>
-using namespace __cxxabiv1;
-#endif
-#endif
 
 namespace coro {
 
-thread_local Coro* t_currentCoro = nullptr;
-
-void
-#ifdef _MSC_VER
-__stdcall
-#endif
-Run(void* coro) {
-	reinterpret_cast<Coro*>(coro)->run();
-}
+// Текущая корутина на данном потоке. Валидна только между точками ожидания: при каждом
+// возобновлении после await его восстанавливает await-хелпер (см. AsioTask.h), а в начале
+// тела — обёртка go().
+thread_local Coro* t_current = nullptr;
 
 Coro* Coro::current() {
-	if (!t_currentCoro) {
-		throw std::logic_error("Coro::current is nullptr");
+	if (!t_current) {
+		throw std::logic_error("Coro::current() is nullptr");
 	}
-	return t_currentCoro;
+	return t_current;
 }
 
-Coro::Coro(std::function<void()> routine): _routine(std::move(routine)), _fiber(Run, this)
-{
+Coro* Coro::currentOrNull() {
+	return t_current;
 }
 
-Coro::~Coro() {
-	assert(_state == State::NotStarted || _state == State::Done);
-#ifdef _DEBUG
-	std::string what;
-	for (auto exception: _exceptions) {
-		try {
-			std::rethrow_exception(exception);
-		}
-		catch (const std::exception& error) {
-			what += error.what();
-			what += "\n";
-		}
-		catch (const CancelError&) {
-			continue;
-		}
-		catch (...) {
-#ifndef WIN32
-			what += abi::__cxa_current_exception_type()->name();
-#else
-			what += "Unknown Exception Type";
-#endif
-			what += "\n";
-		}
-	}
-	if (what.size()) {
-		printf("Coro::~Coro: unhandled exceptions:\n%s", what.c_str());
-	}
-#endif
+void Coro::setCurrent(Coro* coro) {
+	t_current = coro;
 }
 
-void Coro::switchIn() {
-	_previousCoro = t_currentCoro;
-	t_currentCoro = this;
-	if (_previousCoro) {
-		_previousCoro->_fiber.switchTo(_fiber);
-	} else {
-		_fiber.enter();
-	}
-	t_currentCoro = _previousCoro;
-	_previousCoro = nullptr;
-}
-
-void Coro::start() {
-	assert(_state == State::NotStarted);
-	switchIn();
-}
-
-void Coro::wake(WaitToken token) {
-	// Нулевой токен зарезервирован под "ожидание только исключения" и не пробуждается wake().
-	if (token == nullptr) {
-		return;
-	}
-	if (_state == State::Suspended && _waitToken == token) {
-		switchIn();
-	}
-}
-
-void Coro::suspend(WaitToken token, bool interruptible) {
-	if (interruptible) {
-		rethrowPendingException();
-	}
-
-	_waitToken = token;
-	_interruptible = interruptible;
-	_state = State::Suspended;
-
-	if (_previousCoro) {
-		_fiber.switchTo(_previousCoro->_fiber);
-	} else {
-		_fiber.exit();
-	}
-
-	_state = State::Running;
-	_waitToken = nullptr;
-	_interruptible = false;
-
-	if (interruptible) {
-		rethrowPendingException();
-	}
-}
-
-void Coro::propagateException(std::exception_ptr exception) {
-	assert(exception);
-	_exceptions.push_back(exception);
-
-	// Если корутина прямо сейчас приостановлена и готова принять исключение — будим её, чтобы
-	// исключение было выброшено немедленно. Иначе оно дождётся ближайшей прерываемой приостановки.
-	if (_state == State::Suspended && _interruptible) {
-		switchIn();
-	}
-}
+Coro::Coro(strand_t strand): _strand(std::move(strand)) {}
 
 void Coro::cancel() {
-	propagateException(CancelError());
+	// Отмена может прийти с любого потока, поэтому выполняем emit на strand корутины —
+	// так он сериализуется с самой корутиной и её операциями.
+	auto self = shared_from_this();
+	asio::post(_strand, [self] {
+		// _done выставляется в теле корутины на этом же strand, поэтому проверка безопасна.
+		// Отмена уже завершённой корутины — no-op: иначе emit обратился бы к cancellation-slot
+		// последней (уже разрушенной) операции и упал бы.
+		if (!self->_done) {
+			self->_signal.emit(asio::cancellation_type::terminal);
+		}
+	});
 }
 
-void Coro::rethrowPendingException() {
-	if (_exceptions.size()) {
-		auto exception = _exceptions.front();
-		_exceptions.pop_front();
-		assert(exception);
-		std::rethrow_exception(exception);
-	}
+void Coro::requestTimeout(Timeout* timeout) {
+	// Вызывается из обработчика таймера, уже на strand корутины.
+	_pendingTimeout = timeout;
+	_signal.emit(asio::cancellation_type::terminal);
 }
 
-void Coro::run() {
-	_state = State::Running;
-	try
-	{
-		_routine();
-	}
-	catch (const CancelError&) {
-		// do nothing
-	}
-	catch (...)
-	{
-		auto exception = std::current_exception();
-		assert(exception);
-		_exceptions.push_front(exception);
-	}
-	_routine = nullptr;
-	_state = State::Done;
+Timeout* Coro::takePendingTimeout() {
+	auto timeout = _pendingTimeout;
+	_pendingTimeout = nullptr;
+	return timeout;
+}
 
-	// Финальное переключение обратно к инициатору. Сюда мы больше не вернёмся.
-	if (_previousCoro) {
-		_fiber.switchTo(_previousCoro->_fiber);
-	} else {
-		_fiber.exit();
-	}
+std::shared_ptr<Coro> go(asio::io_context& io,
+                         std::function<void()> routine,
+                         std::function<void()> onDone) {
+	auto coro = std::make_shared<Coro>(asio::make_strand(io));
+
+	// Стартуем корутину строго из контекста цикла событий, а не inline внутри вызывающей
+	// корутины: asio::spawn со свежего strand имеет свойство запускать тело синхронно
+	// (dispatch), и если такой "inline"-ребёнок тут же приостановится, это ломает учёт
+	// fiber-стека asio (вызывающая корутина падает на следующем suspend). Отложенный post
+	// гарантирует, что тело корутины начнётся уже на чистом контексте цикла.
+	asio::post(coro->strand(),
+		[coro, routine = std::move(routine), onDone = std::move(onDone)]() mutable {
+	asio::spawn(coro->strand(),
+		[coro, routine = std::move(routine), onDone = std::move(onDone)](asio::yield_context yield) {
+			coro->bindYield(yield);
+			Coro::setCurrent(coro.get());
+			try {
+				routine();
+			}
+			catch (const CancelError&) {
+				// Отмена — штатное завершение, ничего не делаем.
+			}
+			catch (...) {
+				// В MT-модели необработанные исключения корутины должен подхватывать тот,
+				// кто её запустил (например, CoroPool). Низкоуровневый go() их не хранит:
+				// CoroPool оборачивает routine так, чтобы перехватить исключение до onDone.
+			}
+			coro->markDone();
+			Coro::setCurrent(nullptr);
+			if (onDone) {
+				onDone();
+			}
+		},
+		// Привязываем slot отмены spawn'а к нашему cancellation_signal: emit на нём отменяет
+		// текущую async-операцию корутины (её и переводим в CancelError/TimeoutError).
+		asio::bind_cancellation_slot(coro->signal().slot(), asio::detached));
+	});
+
+	return coro;
 }
 
 }

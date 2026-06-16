@@ -1,100 +1,60 @@
 
-#include <coro/Finally.h>
+#include "coro/CoroPool.h"
+#include "coro/Queue.h"
 #include <catch.hpp>
-#include "coro/Coro.h"
+#include <stdexcept>
 
 using namespace coro;
 
-TEST_CASE("A basic test", "[Coro]") {
-	bool success = false;
-	Coro coro([&] {
-		success = true;
+// В MT-модели корутины запускаются через CoroPool (низкоуровневого ручного Coro API больше нет).
+
+TEST_CASE("A coroutine runs to completion", "[Coro]") {
+	bool ran = false;
+	CoroPool pool;
+	pool.exec([&] {
+		ran = true;
 	});
-	coro.start();
-	REQUIRE(success);
+	pool.waitAll();
+	REQUIRE(ran);
 }
 
-TEST_CASE("Nested coros", "[Coro]") {
-	bool success = false;
-	Coro coro1([&] {
-		Coro coro2([&] {
-			success = true;
-		});
-		auto current = Coro::current();
-		coro2.start();
-		REQUIRE(current == Coro::current());
+TEST_CASE("Coro::current() is restored after a nested pool", "[Coro]") {
+	CoroPool pool;
+	pool.exec([&] {
+		Coro* outer = Coro::current();
+		REQUIRE(outer != nullptr);
+		{
+			CoroPool sub;
+			sub.exec([&] {
+				REQUIRE(Coro::current() != nullptr);
+			});
+			sub.waitAll();
+		}
+		REQUIRE(Coro::current() == outer);
 	});
-	coro1.start();
-	REQUIRE(success);
+	pool.waitAll();
 }
 
-TEST_CASE("Cancellation", "[Coro]") {
-	bool success = false;
-	Coro coro([&] {
+TEST_CASE("Cancellation throws CancelError into a blocked coroutine", "[Coro]") {
+	bool cancelled = false;
+	CoroPool pool;
+	pool.exec([&] {
 		try {
-			Coro::current()->suspend(nullptr);
+			Queue<int> queue;
+			queue.pop();   // блокируется навсегда
 		}
 		catch (const CancelError&) {
-			success = true;
+			cancelled = true;
 		}
-	});
-	coro.start();
-	coro.cancel();
-	REQUIRE(success);
+	})->cancel();
+	pool.waitAll();
+	REQUIRE(cancelled);
 }
 
-
-TEST_CASE("Throw an exception into a coro", "[Coro]") {
-	bool success = false;
-	Coro coro([&] {
-		try {
-			Coro::current()->suspend(nullptr);
-		}
-		catch (...) {
-			success = true;
-		}
+TEST_CASE("An exception from a child propagates through waitAll", "[Coro]") {
+	CoroPool pool;
+	pool.exec([&] {
+		throw std::runtime_error("boom");
 	});
-	coro.start();
-	coro.propagateException(std::runtime_error("test"));
-	REQUIRE(success);
-}
-
-TEST_CASE("MSVC bug: std::current_exception() == nullptr, if there are >=2 exceptions thrown", "[.]") {
-	try {
-		Finally throwInner([&] {
-			try {
-				throw std::runtime_error("inner");
-			}
-			catch (...) {
-				REQUIRE(std::current_exception());
-			}
-		});
-		throw std::runtime_error("outter");
-	}
-	catch(...) {
-		REQUIRE(std::current_exception());
-	}
-}
-
-TEST_CASE("Ensure that std::current_exception() != nullptr if exceptions are thrown in separete coros", "[Coro]") {
-	Coro coro1([] {
-		Coro coro2([] {
-			try {
-				throw std::runtime_error("inner");
-			}
-			catch (...) {
-				REQUIRE(std::current_exception());
-			}
-		});
-		try {
-			Finally throwInner([&] {
-				coro2.start();
-			});
-			throw std::runtime_error("outter");
-		}
-		catch (...) {
-			REQUIRE(std::current_exception());
-		}
-	});
-	coro1.start();
+	REQUIRE_THROWS_AS(pool.waitAll(false), std::runtime_error);
 }

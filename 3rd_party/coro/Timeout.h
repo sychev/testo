@@ -3,7 +3,7 @@
 
 #include <asio/steady_timer.hpp>
 #include "coro/Coro.h"
-#include "coro/IoService.h"
+#include <stdexcept>
 
 namespace coro {
 
@@ -23,54 +23,42 @@ private:
 };
 
 /*!
-	@brief Таймаут, что ещё тут скажешь
+	@brief Таймаут на блокирующий (по виду) вызов корутины
 
-	@warning Этот код НЕ РАБОТАЕТ:
+	Ставит таймер на strand текущей корутины. По срабатыванию просит корутину отмениться,
+	помечая отмену как таймаут — ближайшая ожидаемая операция корутины завершится броском
+	TimeoutError (см. detail::checkAbort в AsioTask.h).
+
+	Так как таймер живёт на strand корутины, его обработчик сериализован с самой корутиной:
+	гонок между «корутина выполняется» и «таймер сработал» нет.
+
+	@warning Этот код НЕ РАБОТАЕТ (это объявление функции, а не переменной):
 	@code
-		class A {
-		public:
-			enum { TIMEOUT = 10 };
-
-			void f() {
-				Timeout timeout(std::chrono::seconds(TIMEOUT));
-				....
-			}
-		};
+		Timeout timeout(std::chrono::seconds(TIMEOUT));
 	@endcode
-	Здесь не объявление переменной, здесь объявление ФУНКЦИИ
 */
 class Timeout {
 public:
-	/// Установить таймаут
 	template <typename Duration>
-	Timeout(Duration duration): _timer(IoService::current()->_impl) {
+	Timeout(Duration duration): _timer(Coro::current()->strand()), _coro(Coro::current()) {
 		_timer.expires_after(duration);
 		_timer.async_wait([this](const std::error_code& errorCode) {
-			_callbackExecuted = true;
-			if (_timerCanceled) {
-				return _coro->wake(this);
-			}
 			if (errorCode) {
-				return _coro->propagateException(std::system_error(errorCode));
+				return;   // таймер отменён в деструкторе — таймаут не наступил
 			}
-			_coro->propagateException(TimeoutError(this));
+			_coro->requestTimeout(this);
 		});
 	}
-	/// Снять таймаут
+
 	~Timeout() {
-		if (!_callbackExecuted) {
-			_timerCanceled = true;
-			_timer.cancel();
-			// Дожидаемся фактического вызова callback'а таймера (operation_aborted),
-			// чтобы он не обратился к уже уничтоженному Timeout. Прерывания не принимаем.
-			_coro->suspend(this, /* interruptible = */ false);
-		}
+		// Отменяем таймер. Поскольку и деструктор, и обработчик таймера выполняются на одном
+		// strand, они не пересекаются: если обработчик ещё не вызван, cancel() его снимет.
+		_timer.cancel();
 	}
 
 private:
 	asio::steady_timer _timer;
-	Coro* _coro = Coro::current();
-	bool _timerCanceled = false, _callbackExecuted = false;
+	Coro* _coro;
 };
 
 }

@@ -1,118 +1,86 @@
 
 #pragma once
 
-#ifdef _MSC_VER
-#include "coro/FiberWindows.h"
-#endif
-#ifdef __GNUC__
-#include "coro/FiberLinux.h"
-#endif
-#include <functional>
-#include <list>
+#include <asio.hpp>
+#include <asio/spawn.hpp>
 #include <exception>
+#include <functional>
+#include <memory>
 
 namespace coro {
+
+using executor_t = asio::io_context::executor_type;
+using strand_t   = asio::strand<executor_t>;
 
 /*!
 	@brief Исключение для отмены корутин
 
-	Специально не наследуется от std::exception, для того чтобы гарантированно полностью раскрутить
+	Специально не наследуется от std::exception, чтобы гарантированно полностью раскрутить
 	стек корутины. Помни об этом, когда будешь писать catch (...)
 */
 struct CancelError {};
 
+class Timeout;
+
 /*!
-	@brief Токен пробуждения корутины
+	@brief Дескриптор одной корутины (spawned-функции asio)
 
-	Раньше пробуждение различалось по строковым токенам ("Mutex 0x...", "Queue 0x..." и т.п.),
-	что приводило к аллокациям и форматированию строк на каждое переключение. Теперь в качестве
-	токена используется адрес объекта-инициатора ожидания (this примитива или AsyncOp), а особый
-	случай "ожидание только исключения" кодируется нулевым токеном (см. Coro::suspend).
+	В MT-модели каждая корутина запускается через asio::spawn на собственном strand. Это
+	гарантирует, что корутина и все её возобновления сериализованы (она никогда не выполняется
+	на двух потоках одновременно), при этом разные корутины параллелятся по потокам общего
+	io_context.
+
+	Coro хранит:
+	  - strand, на котором живёт корутина;
+	  - указатель на её yield_context (валиден, пока тело корутины выполняется);
+	  - cancellation_signal, через который снаружи запрашивается отмена;
+	  - "ожидающий" Timeout, превращающий ближайшую отмену в TimeoutError.
 */
-using WaitToken = const void*;
-
-/// Корутина сферическая в вакууме
-class Coro {
+class Coro: public std::enable_shared_from_this<Coro> {
 public:
+	/// Текущая корутина на этом потоке (валидна между точками ожидания)
 	static Coro* current();
+	static Coro* currentOrNull();
+	/// Установить текущую корутину (служебное; вызывается обёрткой запуска и await-хелпером)
+	static void setCurrent(Coro* coro);
 
-	explicit Coro(std::function<void()> routine);
-	~Coro();
+	explicit Coro(strand_t strand);
 
-	Coro(const Coro& other) = delete;
-	Coro& operator=(const Coro& other) = delete;
-	Coro(Coro&& other) = delete;
-	Coro& operator=(Coro&& other) = delete;
+	strand_t& strand() { return _strand; }
+	asio::yield_context& yield() { return *_yield; }
 
-	/// Запустить корутину (выполняется до первой приостановки или до завершения)
-	void start();
-
-	/*!
-		@brief Приостановить ТЕКУЩУЮ корутину до пробуждения wake(token)
-
-		Может быть вызвана ТОЛЬКО из той корутины, которая приостанавливается. Вот так:
-		@code
-			Coro::current()->suspend(this);
-		@endcode
-
-		@param token        идентификатор ожидаемого события (обычно this инициатора).
-		                    Нулевой token означает "ожидание только инъекции исключения".
-		@param interruptible если true, то заброшенное в корутину исключение (cancel /
-		                    propagateException) немедленно прервёт ожидание и будет выброшено.
-	*/
-	void suspend(WaitToken token, bool interruptible = true);
-
-	/*!
-		@brief Разбудить корутину, приостановленную на suspend(token)
-
-		Может быть вызвана как извне корутины, так и из другой корутины. Если корутина не
-		приостановлена именно на этом token, вызов игнорируется (защита от чужих пробуждений).
-
-		@warning
-			Избегайте циклического входа в корутины (coro1 -> coro2 -> coro1). При необходимости
-			используйте отложенное пробуждение через IoService::post.
-	*/
-	void wake(WaitToken token);
-
-	/// Забросить исключение в корутину
-	void propagateException(std::exception_ptr exception);
-	/// Забросить исключение в корутину
-	template <typename Exception>
-	void propagateException(Exception exception) {
-		propagateException(std::make_exception_ptr(std::move(exception)));
-	}
-	/// Забросить в корутину исключение CancelError
+	/// Запросить отмену корутины (безопасно с любого потока). Доставляется как CancelError.
 	void cancel();
 
-	/// Вытащить и перебросить ближайшее запланированное исключение (если есть)
-	void rethrowPendingException();
-
-	/// Очередь запланированных исключений
-	const std::list<std::exception_ptr>& exceptions() const {
-		return _exceptions;
-	}
-
 	/// Завершилась ли корутина
-	bool done() const {
-		return _state == State::Done;
-	}
+	bool done() const { return _done; }
+
+	// --- служебное, используется обёрткой запуска и Timeout ---
+	void bindYield(asio::yield_context& y) { _yield = &y; }
+	asio::cancellation_signal& signal() { return _signal; }
+	void markDone() { _done = true; }
+	/// Пометить, что ближайшая отмена этой корутины должна стать TimeoutError (вызывать на strand)
+	void requestTimeout(Timeout* timeout);
+	Timeout* takePendingTimeout();
 
 private:
-	enum class State { NotStarted, Suspended, Running, Done };
-
-	/// Переключение управления в эту корутину (сохраняя текущую как _previousCoro)
-	void switchIn();
-
-	std::function<void()> _routine;
-	Fiber _fiber;
-	Coro* _previousCoro = nullptr;
-	std::list<std::exception_ptr> _exceptions;
-	State _state = State::NotStarted;
-	WaitToken _waitToken = nullptr;
-	bool _interruptible = false;
-
-public:
-	void run();
+	strand_t _strand;
+	asio::yield_context* _yield = nullptr;
+	asio::cancellation_signal _signal;
+	Timeout* _pendingTimeout = nullptr;
+	bool _done = false;
 };
+
+/*!
+	@brief Запустить корутину на собственном strand общего io_context
+
+	@param io      общий io_context
+	@param routine тело корутины
+	@param onDone  колбэк по завершении (вызывается на strand корутины)
+	@return        разделяемый дескриптор корутины (живёт минимум до завершения тела)
+*/
+std::shared_ptr<Coro> go(asio::io_context& io,
+                         std::function<void()> routine,
+                         std::function<void()> onDone = {});
 
 }

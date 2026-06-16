@@ -30,15 +30,15 @@ public:
 
 	template <typename T>
 	size_t send(const T& t, const typename Protocol::endpoint& endpoint) {
-		return awaitValue<size_t>([&](auto&& handler) {
-			_handle.async_send_to(t, endpoint, std::forward<decltype(handler)>(handler));
+		return awaitValue<size_t>([&](auto&& token) {
+			return _handle.async_send_to(t, endpoint, std::forward<decltype(token)>(token));
 		});
 	}
 
 	template <typename T>
 	size_t receive(const T& t, typename Protocol::endpoint& endpoint) {
-		return awaitValue<size_t>([&](auto&& handler) {
-			_handle.async_receive_from(t, endpoint, std::forward<decltype(handler)>(handler));
+		return awaitValue<size_t>([&](auto&& token) {
+			return _handle.async_receive_from(t, endpoint, std::forward<decltype(token)>(token));
 		});
 	}
 

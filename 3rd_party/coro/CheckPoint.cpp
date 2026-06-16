@@ -1,20 +1,21 @@
 
-#include "coro/IoService.h"
 #include "coro/CheckPoint.h"
 #include "coro/Coro.h"
+#include "coro/AsioTask.h"
+#include <asio/steady_timer.hpp>
 
 namespace coro {
 
 void CheckPoint() {
-	auto coro = Coro::current();
-	IoService::current()->post([coro] {
-		IoService::current()->checkpoints.push([coro] {
-			coro->wake(coro);
-		});
+	// Уступаем управление циклу событий: ставим таймер с нулевой задержкой на strand корутины
+	// и ждём его. Это даёт остальным готовым задачам шанс выполниться. Точка прерываемая —
+	// отмена/таймаут корутины бросят CancelError/TimeoutError.
+	Coro* self = Coro::current();
+	asio::steady_timer timer(self->strand());
+	timer.expires_after(std::chrono::seconds(0));
+	awaitOp([&](auto&& token) {
+		timer.async_wait(std::forward<decltype(token)>(token));
 	});
-	// Токеном выступает адрес самой корутины: в каждый момент времени активна не более одной
-	// контрольной точки на корутину.
-	coro->suspend(coro);
 }
 
 }

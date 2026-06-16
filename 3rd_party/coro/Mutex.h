@@ -1,34 +1,40 @@
 
 #pragma once
 
-#include "coro/Coro.h"
+#include "coro/AsioTask.h"
+#include "coro/IoService.h"
+#include <asio/experimental/concurrent_channel.hpp>
 #include <mutex>
-#include <list>
 
 namespace coro {
 
 /*!
-	@brief Обеспечивает монопольный доступ корутины к ресурсу.
+	@brief Монопольный доступ корутины к ресурсу. Используйте вместе с std::lock_guard
 
-	Используйте вместе с std::lock_guard
-
-	@warning НЕ потокобезопасен!!!
+	Реализован как канал ёмкостью 1, в котором лежит единственный "токен владения". lock()
+	забирает токен (или ждёт его), unlock() возвращает. concurrent_channel потокобезопасен,
+	поэтому в MT-модели мьютексом можно пользоваться из корутин на разных потоках.
 */
 class Mutex {
 public:
-	/*!
-		@brief Захват мьютекса
+	Mutex(): _channel(IoService::current()->_impl, 1) {
+		_channel.try_send(std::error_code{});   // изначально свободен
+	}
 
-		Если мьютекс уже захвачен, то происходит выход из корутины до тех пор пока мьютекс
-		не освободится. Или до тех пор, пока корутина не будет отменена.
-	*/
-	void lock();
-	/// Освобождение мьютекса
-	void unlock();
+	/// Захват мьютекса (ждёт освобождения; может быть прерван отменой корутины)
+	void lock() {
+		awaitOp([&](auto&& token) {
+			_channel.async_receive(std::forward<decltype(token)>(token));
+		});
+	}
+
+	/// Освобождение мьютекса (неблокирующе, безопасно с любого потока)
+	void unlock() {
+		_channel.try_send(std::error_code{});
+	}
 
 private:
-	Coro* _owner = nullptr;
-	std::list<Coro*> _coros;
+	asio::experimental::concurrent_channel<void(std::error_code)> _channel;
 };
 
 }

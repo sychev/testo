@@ -2,24 +2,32 @@
 #pragma once
 
 #include "coro/Coro.h"
-#include <set>
+#include <asio/experimental/channel.hpp>
+#include <vector>
+#include <exception>
 
 namespace coro {
 
-/// Класс для иерархического управления корутинами в пределах текущего Strand
+/*!
+	@brief Иерархическое управление дочерними корутинами (структурная конкурентность)
+
+	Дочерние корутины запускаются каждая на СВОЁМ strand — то есть выполняются параллельно по
+	потокам общего io_context. При этом всё состояние самого пула (счётчик, накопленное
+	исключение) изменяется только на strand родителя: exec/waitAll/cancelAll выполняются в
+	родительской корутине, а уведомления о завершении детей постятся на strand родителя. Поэтому
+	пул не требует блокировок и потокобезопасен по построению.
+*/
 class CoroPool {
 public:
-	/// Блокирует поток выполнения до тех пор, пока не завершатся все дочерние корутины
-	CoroPool() = default;
+	CoroPool();
 	~CoroPool();
 
 	CoroPool(const CoroPool& other) = delete;
-	CoroPool(CoroPool&& other);
-
 	CoroPool& operator=(const CoroPool& other) = delete;
-	CoroPool& operator=(CoroPool&& other);
+	CoroPool(CoroPool&& other) = delete;
+	CoroPool& operator=(CoroPool&& other) = delete;
 
-	/// Запустить новую корутину в текущем Strand
+	/// Запустить дочернюю корутину (на отдельном strand)
 	Coro* exec(std::function<void()> routine);
 	/// Дождаться завершения всех дочерних корутин
 	void waitAll(bool noThrow = false);
@@ -27,10 +35,14 @@ public:
 	void cancelAll();
 
 private:
-	void onCoroDone(Coro* coro);
+	void onChildDone(std::shared_ptr<std::exception_ptr> exception);
 
-	Coro* _parentCoro = Coro::current();
-	std::set<Coro*> _childCoros;
+	strand_t _strand;                                   // strand родительской корутины
+	std::vector<std::shared_ptr<Coro>> _children;       // удерживают детей живыми
+	int _running = 0;
+	bool _waiting = false;
+	std::exception_ptr _firstException;
+	asio::experimental::channel<void(std::error_code)> _allDone;   // сигнал "все дети завершились"
 };
 
 }
