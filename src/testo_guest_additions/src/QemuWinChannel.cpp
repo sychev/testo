@@ -1,12 +1,11 @@
 
 #include "QemuWinChannel.hpp"
-#include <coro/IoService.h>
 #include <winapi/Functions.hpp>
 #include <stdexcept>
 #include "QemuWinChannelExtra.hpp"
 
-QemuWinChannel::QemuWinChannel():
-	stream(asio::windows::stream_handle(coro::IoService::current()->_impl))
+QemuWinChannel::QemuWinChannel(asio::io_context& io):
+	stream(io)
 {
 	std::string device_path = GetVirtioDevicePath();
 	HANDLE handle = CreateFile(winapi::utf8_to_utf16(device_path).c_str(),
@@ -19,7 +18,7 @@ QemuWinChannel::QemuWinChannel():
 	if (handle == INVALID_HANDLE_VALUE) {
 		throw std::runtime_error("CreateFile failed");
 	}
-	stream.handle().assign(handle);
+	stream.assign(handle);
 	info_buf.resize(sizeof(VIRTIO_PORT_INFO));
 }
 
@@ -33,17 +32,47 @@ QemuWinChannel& QemuWinChannel::operator=(QemuWinChannel&& other) {
 }
 
 size_t QemuWinChannel::read(uint8_t* data, size_t size) {
-	PVIRTIO_PORT_INFO info = GetVirtioDeviceInformation(stream.handle().native_handle(), info_buf);
+	PVIRTIO_PORT_INFO info = GetVirtioDeviceInformation(stream.native_handle(), info_buf);
 	if (!info->HostConnected) {
 		return 0;
 	}
-	return stream.readSome(asio::buffer(data, size));
+	asio::io_context& io = static_cast<asio::io_context&>(stream.get_executor().context());
+	std::error_code op_ec;
+	size_t n = 0;
+	bool done = false;
+	stream.async_read_some(asio::buffer(data, size), [&](const std::error_code& ec, size_t bytes) {
+		op_ec = ec;
+		n = bytes;
+		done = true;
+	});
+	while (!done) {
+		io.run_one();
+	}
+	if (op_ec) {
+		throw std::system_error(op_ec);
+	}
+	return n;
 }
 
 size_t QemuWinChannel::write(uint8_t* data, size_t size) {
-	return stream.write(asio::buffer(data, size));
+	asio::io_context& io = static_cast<asio::io_context&>(stream.get_executor().context());
+	std::error_code op_ec;
+	size_t n = 0;
+	bool done = false;
+	asio::async_write(stream, asio::buffer(data, size), [&](const std::error_code& ec, size_t bytes) {
+		op_ec = ec;
+		n = bytes;
+		done = true;
+	});
+	while (!done) {
+		io.run_one();
+	}
+	if (op_ec) {
+		throw std::system_error(op_ec);
+	}
+	return n;
 }
 
 void QemuWinChannel::close() {
-	CloseHandle(stream.handle().native_handle());
+	CloseHandle(stream.native_handle());
 }

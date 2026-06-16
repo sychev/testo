@@ -10,8 +10,9 @@
 
 #include <winapi/Functions.hpp>
 
-#include <coro/Application.h>
-#include <coro/Timer.h>
+#include <asio.hpp>
+#include <thread>
+#include <atomic>
 
 #include "MessageHandler.hpp"
 #ifdef __HYPERV__
@@ -26,23 +27,51 @@ std::shared_ptr<QemuWinChannel> g_qemu_win_channel;
 
 using namespace std::chrono_literals;
 
+// io_context службы (заменяет coro::Application). Останавливается из
+// ControlHandler при остановке службы.
+asio::io_context g_io_daemon;
+std::atomic<bool> g_daemon_stopping{false};
+
 void remote_handler(HostMessageHandler& message_handler) {
 #ifdef __QEMU__
-	g_qemu_win_channel.reset(new QemuWinChannel);
-	coro::Timer timer;
+	g_qemu_win_channel.reset(new QemuWinChannel(g_io_daemon));
 	while (true) {
+		if (g_daemon_stopping) {
+			return;
+		}
 		try {
 			message_handler.run(g_qemu_win_channel);
 		} catch (const std::exception& error) {
 			spdlog::error("Error inside QemuWinChannel loop: {}", error.what());
-			timer.waitFor(100ms);
+			std::this_thread::sleep_for(100ms);
 		}
 	}
 #elif __HYPERV__
 	hyperv::VSocketEndpoint endpoint(service_id);
-	coro::Acceptor<hyperv::VSocketProtocol> acceptor(endpoint);
+	asio::basic_socket_acceptor<hyperv::VSocketProtocol> acceptor(g_io_daemon);
+	acceptor.open(endpoint.protocol());
+	acceptor.bind(endpoint);
+	acceptor.listen();
 	while (true) {
-		coro::StreamSocket<hyperv::VSocketProtocol> socket = acceptor.accept();
+		asio::basic_stream_socket<hyperv::VSocketProtocol> socket(g_io_daemon);
+		std::error_code accept_ec;
+		bool accepted = false;
+		acceptor.async_accept(socket, [&](const std::error_code& ec) {
+			accept_ec = ec;
+			accepted = true;
+		});
+		while (!accepted) {
+			if (g_io_daemon.run_one() == 0) {
+				break; // g_io_daemon.stop() из ControlHandler
+			}
+		}
+		if (g_daemon_stopping) {
+			return;
+		}
+		if (accept_ec) {
+			spdlog::error("Error inside acceptor loop: {}", accept_ec.message());
+			continue;
+		}
 		try {
 			message_handler.run(std::make_shared<HyperVChannel>(std::move(socket)));
 		} catch (const std::exception& error) {
@@ -60,20 +89,19 @@ void app_main() {
 		remote_handler(host_handler);
 	} catch (const std::exception& err) {
 		spdlog::error("app_main std error: {}", err.what());
-	} catch (const coro::CancelError&) {
-		spdlog::error("app_main CancelError");
 	} catch (...) {
 		spdlog::error("app_main unknown error");
 	}
 };
 
-coro::Application app(app_main);
-
 void StopApp() {
+	g_daemon_stopping = true;
 #ifdef __QEMU__
-	g_qemu_win_channel->close();
+	if (g_qemu_win_channel) {
+		g_qemu_win_channel->close();
+	}
 #endif
-	app.cancel();
+	g_io_daemon.stop();
 }
 
 #define SERVICE_NAME _T("Testo Guest Additions")
@@ -114,7 +142,7 @@ void ServiceMain(int argc, char** argv) {
 	spdlog::info("App start");
 	serviceStatus.dwCurrentState = SERVICE_RUNNING;
 	SetServiceStatus(serviceStatusHandle, &serviceStatus);
-	app.run();
+	app_main();
 	spdlog::info("App stop");
 	serviceStatus.dwCurrentState = SERVICE_STOPPED;
 	SetServiceStatus(serviceStatusHandle, &serviceStatus);

@@ -11,7 +11,7 @@
 #include "Channel.hpp"
 
 struct HyperVChannel: Channel {
-	using Socket = coro::StreamSocket<hyperv::VSocketProtocol>;
+	using Socket = asio::basic_stream_socket<hyperv::VSocketProtocol>;
 
 	HyperVChannel(Socket socket_): socket(std::move(socket_)) {}
 	~HyperVChannel() = default;

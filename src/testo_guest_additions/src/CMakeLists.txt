@@ -28,10 +28,10 @@ else()
 endif()
 
 add_executable(testo-guest-additions ${SRCS})
-target_link_libraries(testo-guest-additions os coro testo_guest_additions_protocol)
+target_link_libraries(testo-guest-additions os testo_guest_additions_protocol)
 
 add_executable(testo-guest-additions-cli CLI.cpp)
-target_link_libraries(testo-guest-additions-cli os coro testo_guest_additions_protocol)
+target_link_libraries(testo-guest-additions-cli os testo_guest_additions_protocol)
 
 if (UNIX)
 	target_link_libraries(testo-guest-additions pthread)

@@ -10,11 +10,8 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
-#include <coro/Application.h>
-#include <coro/CoroPool.h>
-#include <coro/Timer.h>
-#include <coro/StreamSocket.h>
-#include <coro/Acceptor.h>
+#include <asio.hpp>
+#include <thread>
 
 #include <clipp.h>
 
@@ -85,19 +82,37 @@ inline std::ostream& operator<<(std::ostream& stream, const cmdline& cmdline) {
 void remote_handler(HostMessageHandler& message_handler) {
 #ifdef __QEMU__
 	std::shared_ptr<Channel> channel(new QemuLinuxChannel);
-	coro::Timer timer;
 	while (true) {
 		try {
 			message_handler.run(channel);
 		} catch (const std::exception& error) {
 			spdlog::error("Error inside QemuLinuxChannel loop: {}", error.what());
-			timer.waitFor(100ms);
+			std::this_thread::sleep_for(100ms);
 		}
 	}
 #elif __HYPERV__
-	coro::Acceptor<hyperv::VSocketProtocol> acceptor(hyperv::VSocketEndpoint(HYPERV_PORT));
+	asio::io_context io;
+	hyperv::VSocketEndpoint endpoint(HYPERV_PORT);
+	asio::basic_socket_acceptor<hyperv::VSocketProtocol> acceptor(io);
+	acceptor.open(endpoint.protocol());
+	acceptor.set_option(asio::socket_base::reuse_address(true));
+	acceptor.bind(endpoint);
+	acceptor.listen();
 	while (true) {
-		coro::StreamSocket<hyperv::VSocketProtocol> socket = acceptor.accept();
+		asio::basic_stream_socket<hyperv::VSocketProtocol> socket(io);
+		std::error_code accept_ec;
+		bool accepted = false;
+		acceptor.async_accept(socket, [&](const std::error_code& ec) {
+			accept_ec = ec;
+			accepted = true;
+		});
+		while (!accepted) {
+			io.run_one();
+		}
+		if (accept_ec) {
+			spdlog::error("Error inside remote acceptor loop: {}", accept_ec.message());
+			continue;
+		}
 		try {
 			message_handler.run(std::make_shared<HyperVChannel>(std::move(socket)));
 		} catch (const std::exception& error) {
@@ -110,7 +125,7 @@ void remote_handler(HostMessageHandler& message_handler) {
 }
 
 struct LocalChannel: Channel {
-	using Socket = coro::StreamSocket<asio::local::stream_protocol>;
+	using Socket = asio::local::stream_protocol::socket;
 
 	LocalChannel(Socket socket_): socket(std::move(socket_)) {}
 	~LocalChannel() = default;
@@ -119,11 +134,41 @@ struct LocalChannel: Channel {
 	LocalChannel& operator=(LocalChannel&& other);
 
 	size_t read(uint8_t* data, size_t size) override {
-		return socket.readSome(data, size);
+		asio::io_context& io = static_cast<asio::io_context&>(socket.get_executor().context());
+		std::error_code op_ec;
+		size_t n = 0;
+		bool done = false;
+		socket.async_read_some(asio::buffer(data, size), [&](const std::error_code& ec, size_t bytes) {
+			op_ec = ec;
+			n = bytes;
+			done = true;
+		});
+		while (!done) {
+			io.run_one();
+		}
+		if (op_ec) {
+			throw std::system_error(op_ec);
+		}
+		return n;
 	}
 
 	size_t write(uint8_t* data, size_t size) override {
-		return socket.writeSome(data, size);
+		asio::io_context& io = static_cast<asio::io_context&>(socket.get_executor().context());
+		std::error_code op_ec;
+		size_t n = 0;
+		bool done = false;
+		socket.async_write_some(asio::buffer(data, size), [&](const std::error_code& ec, size_t bytes) {
+			op_ec = ec;
+			n = bytes;
+			done = true;
+		});
+		while (!done) {
+			io.run_one();
+		}
+		if (op_ec) {
+			throw std::system_error(op_ec);
+		}
+		return n;
 	}
 
 private:
@@ -131,9 +176,27 @@ private:
 };
 
 void local_handler(CLIMessageHandler& message_handler) {
-	coro::Acceptor<asio::local::stream_protocol> acceptor("/var/run/testo-guest-additions.sock");
+	const char* socket_path = "/var/run/testo-guest-additions.sock";
+	::unlink(socket_path);
+
+	asio::io_context io;
+	asio::local::stream_protocol::endpoint endpoint(socket_path);
+	asio::local::stream_protocol::acceptor acceptor(io, endpoint);
 	while (true) {
-		coro::StreamSocket<asio::local::stream_protocol> socket = acceptor.accept();
+		asio::local::stream_protocol::socket socket(io);
+		std::error_code accept_ec;
+		bool accepted = false;
+		acceptor.async_accept(socket, [&](const std::error_code& ec) {
+			accept_ec = ec;
+			accepted = true;
+		});
+		while (!accepted) {
+			io.run_one();
+		}
+		if (accept_ec) {
+			spdlog::error("Error inside local acceptor loop: {}", accept_ec.message());
+			continue;
+		}
 		try {
 			message_handler.run(std::make_shared<LocalChannel>(std::move(socket)));
 		} catch (const std::exception& error) {
@@ -144,7 +207,7 @@ void local_handler(CLIMessageHandler& message_handler) {
 
 std::thread run_async(std::function<void()> fn_) {
 	return std::thread([fn = std::move(fn_)] {
-		coro::Application(fn).run();
+		fn();
 	});
 }
 
@@ -165,8 +228,6 @@ void app_main() {
 		run_handlers();
 	} catch (const std::exception& err) {
 		spdlog::error("app_main std error: {}", err.what());
-	} catch (const coro::CancelError&) {
-		spdlog::error("app_main CancelError");
 	} catch (...) {
 		spdlog::error("app_main unknown error");
 	}

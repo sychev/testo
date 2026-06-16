@@ -1,5 +1,5 @@
 
-#include <coro/Timer.h>
+#include <thread>
 
 #include "SharedFolder.hpp"
 
@@ -144,7 +144,7 @@ bool umount_shared_folder(const std::string& folder_name) {
 				if (i == 20) {
 					throw;
 				}
-				coro::Timer().waitFor(1s);
+				std::this_thread::sleep_for(1s);
 			}
 		}
 #else

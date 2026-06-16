@@ -1,6 +1,5 @@
 
-#include <coro/Application.h>
-#include <coro/StreamSocket.h>
+#include <asio.hpp>
 #include <clipp.h>
 #include <iostream>
 #include <testo_guest_additions_protocol/GuestAdditions.hpp>
@@ -8,24 +7,53 @@
 #ifdef __linux__
 struct GA: CLIGuestAdditions {
 	GA() {
-		socket.connect("/var/run/testo-guest-additions.sock");
+		asio::local::stream_protocol::endpoint endpoint("/var/run/testo-guest-additions.sock");
+		std::error_code op_ec;
+		bool done = false;
+		socket.async_connect(endpoint, [&](const std::error_code& ec) {
+			op_ec = ec;
+			done = true;
+		});
+		while (!done) {
+			io.run_one();
+		}
+		if (op_ec) {
+			throw std::system_error(op_ec);
+		}
 	}
 
 private:
 	void send_raw(const uint8_t* data, size_t size) override {
-		size_t n = socket.write(data, size);
-		if (n != size) {
-			throw std::runtime_error(__PRETTY_FUNCTION__);
+		std::error_code op_ec;
+		bool done = false;
+		asio::async_write(socket, asio::buffer(data, size), [&](const std::error_code& ec, size_t) {
+			op_ec = ec;
+			done = true;
+		});
+		while (!done) {
+			io.run_one();
+		}
+		if (op_ec) {
+			throw std::system_error(op_ec);
 		}
 	}
 	void recv_raw(uint8_t* data, size_t size) override {
-		size_t n = socket.read(data, size);
-		if (n != size) {
-			throw std::runtime_error(__PRETTY_FUNCTION__);
+		std::error_code op_ec;
+		bool done = false;
+		asio::async_read(socket, asio::buffer(data, size), [&](const std::error_code& ec, size_t) {
+			op_ec = ec;
+			done = true;
+		});
+		while (!done) {
+			io.run_one();
+		}
+		if (op_ec) {
+			throw std::system_error(op_ec);
 		}
 	}
 
-	coro::StreamSocket<asio::local::stream_protocol> socket;
+	asio::io_context io;
+	asio::local::stream_protocol::socket socket{io};
 };
 #else
 struct GA: CLIGuestAdditions {
@@ -164,14 +192,12 @@ int do_main(int argc, char** argv) {
 int main(int argc, char** argv) {
 	int result = 0;
 
-	coro::Application([&]{
-		try {
-			result = do_main(argc, argv);
-		} catch (const std::exception& error) {
-			std::cerr << error.what() << std::endl;
-			result = 1;
-		}
-	}).run();
+	try {
+		result = do_main(argc, argv);
+	} catch (const std::exception& error) {
+		std::cerr << error.what() << std::endl;
+		result = 1;
+	}
 
 	return result;
 }
