@@ -1,6 +1,8 @@
 
 #pragma once
 
+#include <chrono>
+
 #include <nlohmann/json.hpp>
 
 #include <ghc/filesystem.hpp>
@@ -10,6 +12,44 @@ namespace fs = ghc::filesystem;
 
 struct GuestAdditions {
 	virtual ~GuestAdditions() = default;
+
+	/*
+		Абсолютный дедлайн всей текущей операции. Заменяет ambient-семантику
+		coro::Timeout: один дедлайн накрывает всю многошаговую (чанковую)
+		последовательность send_raw/recv_raw. max() == без таймаута.
+
+		Листовые транспорты (send_raw/recv_raw в наследниках) взводят свой
+		steady_timer на expires_at(deadline), поэтому общий дедлайн делится
+		между всеми чанковыми вызовами.
+	*/
+	std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max();
+
+	/*
+		RAII-замена coro::Timeout (1:1). Сохраняет прежний дедлайн, ставит
+		min(прежний, now + d) и восстанавливает прежний в деструкторе. min
+		воспроизводит вложенность coro::Timeout: внутренний (например, 3s в
+		is_avaliable) не затирает внешний, срабатывает тот, что раньше.
+	*/
+	struct DeadlineGuard {
+		GuestAdditions* ga;
+		std::chrono::steady_clock::time_point prev;
+
+		DeadlineGuard(GuestAdditions* ga_, std::chrono::steady_clock::time_point d): ga(ga_), prev(ga_->deadline) {
+			if (d < ga->deadline) {
+				ga->deadline = d;
+			}
+		}
+		~DeadlineGuard() {
+			ga->deadline = prev;
+		}
+
+		DeadlineGuard(const DeadlineGuard&) = delete;
+		DeadlineGuard& operator=(const DeadlineGuard&) = delete;
+	};
+
+	DeadlineGuard with_deadline(std::chrono::milliseconds d) {
+		return DeadlineGuard(this, std::chrono::steady_clock::now() + d);
+	}
 
 	bool is_avaliable(std::chrono::milliseconds timeout = std::chrono::seconds(3));
 	void copy_to_guest(const fs::path& src, const fs::path& dst);
