@@ -3,8 +3,8 @@
 #include "Logger.hpp"
 #include "Exceptions.hpp"
 #include "Utils.hpp"
+#include "Runtime.hpp"
 
-#include <coro/Timer.h>
 #include <iostream>
 
 using namespace std::chrono_literals;
@@ -16,7 +16,7 @@ asio::ip::tcp::endpoint parse_tcp_endpoint(const std::string& endpoint);
 
 NNClient::NNClient(const std::string& endpoint_):
 	endpoint(parse_tcp_endpoint(endpoint_)),
-	channel(new Channel(Socket()))
+	channel(new Channel(Socket(g_io)))
 {
 	TRACE();
 
@@ -45,8 +45,26 @@ bool is_connection_lost(const std::error_code& code) {
 
 void NNClient::establish_connection() {
 	establish_connection_wrapper([&] {
-		channel->socket = Socket();
-		channel->socket.connect(endpoint);
+		channel->socket = Socket(g_io);
+
+		std::error_code op_ec;
+		bool done = false;
+		auto prev_cancel = g_cancel_current;
+		g_cancel_current = [&]{ channel->socket.cancel(); };
+		channel->socket.async_connect(endpoint, [&](const std::error_code& ec) {
+			op_ec = ec;
+			done = true;
+		});
+		while (!done) {
+			g_io.run_one();
+		}
+		g_cancel_current = prev_cancel;
+		if (op_ec == asio::error::operation_aborted && g_interrupted) {
+			throw Interruption();
+		}
+		if (op_ec) {
+			throw std::system_error(op_ec);
+		}
 	});
 
 	channel->send(create_handshake_request(client_version));
@@ -86,8 +104,24 @@ void NNClient::establish_connection_wrapper(const std::function<void()>& fn) {
 			std::cerr << error.what() << std::endl;
 			if (i < (establish_connection_tries - 1)) {
 				std::cerr << "Failed to connect to the server, reconnecting ...\n";
-				coro::Timer timer;
-				timer.waitFor(2s);
+
+				asio::steady_timer timer(g_io);
+				timer.expires_after(2s);
+				std::error_code op_ec;
+				bool done = false;
+				auto prev_cancel = g_cancel_current;
+				g_cancel_current = [&]{ timer.cancel(); };
+				timer.async_wait([&](const std::error_code& ec) {
+					op_ec = ec;
+					done = true;
+				});
+				while (!done) {
+					g_io.run_one();
+				}
+				g_cancel_current = prev_cancel;
+				if (op_ec == asio::error::operation_aborted && g_interrupted) {
+					throw Interruption();
+				}
 			}
 		}
 	}

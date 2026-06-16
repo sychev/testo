@@ -1,8 +1,7 @@
 
-#include <coro/Application.h>
-#include <coro/CoroPool.h>
-#include <coro/SignalSet.h>
-#include <coro/Finally.h>
+#include <asio.hpp>
+#include <scope_guard.hpp>
+#include "../Runtime.hpp"
 
 #ifdef WIN32
 #include "../backends/hyperv/HypervEnvironment.hpp"
@@ -30,9 +29,15 @@
 
 using namespace clipp;
 
-std::atomic<bool> REPL_mode_is_active(false);
+// Единственный io_context хостового процесса (объявлен в Runtime.hpp).
+asio::io_context g_io;
 
-struct Interruption {};
+// Контракт прерывания (объявлен в Interruption.hpp). Взводится обработчиком
+// сигнала; g_cancel_current выставляют блокирующие фасады на время операции.
+std::atomic<bool> g_interrupted(false);
+std::function<void()> g_cancel_current;
+
+std::atomic<bool> REPL_mode_is_active(false);
 
 enum class mode {
 	run,
@@ -217,22 +222,33 @@ int do_main(int argc, char** argv) {
 	TRACE();
 	check_privileges();
 	init_env(hypervisor);
-	coro::Finally cleanup([&] {
+	auto cleanup = sg::make_scope_guard([&] {
 		env.reset();
 	});
 
-	coro::CoroPool pool;
-	pool.exec([&] {
-		while (true) {
-			coro::SignalSet set({SIGINT, SIGTERM});
-			int signal = set.wait();
-			if ((signal == SIGINT) && REPL_mode_is_active) {
-				REPL_mode_is_active = false;
-				continue;
+	// Замена сигнальной корутины: самопере-взводящийся async_wait на g_io.
+	// Обработчик выполняется, когда g_io прокачивается внутри блокирующих
+	// фасадов (run_one) или в точках проверки прерывания (poll).
+	std::function<void()> arm_signals;
+	asio::signal_set signals(g_io, SIGINT, SIGTERM);
+	arm_signals = [&] {
+		signals.async_wait([&](const std::error_code& ec, int signal) {
+			if (ec) {
+				return;
 			}
-			throw Interruption();
-		}
-	});
+			if ((signal == SIGINT) && REPL_mode_is_active) {
+				// Первый Ctrl-C в REPL: только выходим из REPL, не прерываем.
+				REPL_mode_is_active = false;
+			} else {
+				g_interrupted = true;
+				if (g_cancel_current) {
+					g_cancel_current();
+				}
+			}
+			arm_signals();
+		});
+	};
+	arm_signals();
 
 	if (selected_mode == mode::clean) {
 		return clean_mode(clean_args);
@@ -247,20 +263,18 @@ int do_main(int argc, char** argv) {
 
 int main(int argc, char** argv) {
 	int result = 0;
-	coro::Application([&]{
-		try {
-			result = do_main(argc, argv);
-		} catch (const TestFailedException& error) {
-			std::cout << error << std::endl;
-			result = 1;
-		}  catch (const std::exception& error) {
-			std::cerr << error << std::endl;
-			result = 2;
-		} catch (const Interruption&) {
-			std::cerr << "Interrupted by user" << std::endl;
-			result = 3;
-		}
-	}).run();
+	try {
+		result = do_main(argc, argv);
+	} catch (const TestFailedException& error) {
+		std::cout << error << std::endl;
+		result = 1;
+	}  catch (const std::exception& error) {
+		std::cerr << error << std::endl;
+		result = 2;
+	} catch (const Interruption&) {
+		std::cerr << "Interrupted by user" << std::endl;
+		result = 3;
+	}
 
 	return result;
 }
