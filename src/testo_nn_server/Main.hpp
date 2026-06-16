@@ -8,9 +8,7 @@
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_sinks.h>
 
-#include <coro/Application.h>
-#include <coro/Acceptor.h>
-#include <coro/StreamSocket.h>
+#include <asio.hpp>
 
 #include <nlohmann/json.hpp>
 #include <ghc/filesystem.hpp>
@@ -20,15 +18,49 @@
 
 namespace fs = ghc::filesystem;
 
+// Единственный io_context сервера (заменяет coro::Application/IoService).
+// Глобальный, чтобы Windows-служба могла остановить его из ControlHandler.
+inline asio::io_context g_nn_io;
+
 void local_handler(const nlohmann::json& settings) {
 	auto port = settings.value("port", 8156);
-	coro::TcpAcceptor acceptor(asio::ip::tcp::endpoint(asio::ip::tcp::v4(), port));
+
+	asio::ip::tcp::endpoint endpoint(asio::ip::tcp::v4(), port);
+	asio::ip::tcp::acceptor acceptor(g_nn_io);
+	acceptor.open(endpoint.protocol());
+	acceptor.set_option(asio::socket_base::reuse_address(true));
+	acceptor.bind(endpoint);
+	acceptor.listen();
+
 	spdlog::info(fmt::format("Listening on port {}", port));
-	acceptor.run([](coro::StreamSocket<asio::ip::tcp> socket) {
+
+	// Последовательная обработка: одно соединение целиком, затем следующий accept.
+	// Сохраняет однопоточность (onnx-инференс не вызывается из разных потоков).
+	while (true) {
+		asio::ip::tcp::socket socket(g_nn_io);
+		std::error_code accept_ec;
+		bool accepted = false;
+		acceptor.async_accept(socket, [&](const std::error_code& ec) {
+			accept_ec = ec;
+			accepted = true;
+		});
+		while (!accepted) {
+			if (g_nn_io.run_one() == 0) {
+				break; // g_nn_io.stop() из ControlHandler (остановка службы)
+			}
+		}
+		if (g_nn_io.stopped()) {
+			return;
+		}
+		if (accept_ec) {
+			spdlog::error(fmt::format("Accept failed: {}", accept_ec.message()));
+			continue;
+		}
+
 		std::string new_connection;
 		try {
-			new_connection = socket.handle().remote_endpoint().address().to_string() +
-				":" + std::to_string(socket.handle().remote_endpoint().port());
+			new_connection = socket.remote_endpoint().address().to_string() +
+				":" + std::to_string(socket.remote_endpoint().port());
 			spdlog::info(fmt::format("Accepted new connection: {}", new_connection));
 
 			std::shared_ptr<Channel> channel(new Channel(std::move(socket)));
@@ -42,7 +74,7 @@ void local_handler(const nlohmann::json& settings) {
 		} catch (const std::exception& error) {
 			std::cout << "Error inside local acceptor loop: " << error.what() << std::endl;
 		}
-	});
+	}
 }
 
 void setup_logs(const nlohmann::json& settings) {
