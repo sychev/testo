@@ -1,8 +1,8 @@
 
 #include <coro/Application.h>
-#include <coro/CoroPool.h>
 #include <coro/SignalSet.h>
 #include <coro/Finally.h>
+#include <asio/experimental/awaitable_operators.hpp>
 
 #ifdef WIN32
 #include "../backends/hyperv/HypervEnvironment.hpp"
@@ -97,7 +97,7 @@ void init_env(const std::string& hypervisor) {
 	}
 }
 
-int do_main(int argc, char** argv) {
+asio::awaitable<int> do_main(int argc, char** argv) {
 
 	srand(time(NULL));
 
@@ -194,23 +194,23 @@ int do_main(int argc, char** argv) {
 			std::cerr << "Error: '" << arg << "' is not a valid argument" << std::endl;
 		}
 		std::cout << "Usage:" << std::endl << usage_lines(cli, "testo") << std::endl;
-		return -1;
+		co_return -1;
 	}
 
 	if (!res) {
 		std::cerr << "Error: invalid command line arguments" << std::endl;
 		std::cout << "Usage:" << std::endl << usage_lines(cli, "testo") << std::endl;
-		return -1;
+		co_return -1;
 	}
 
 	if (selected_mode == mode::help) {
 		std::cout << make_man_page(cli, "testo") << std::endl;
-		return 0;
+		co_return 0;
 	}
 
 	if (selected_mode == mode::version) {
 		std::cout << "Testo framework version " << TESTO_VERSION << std::endl;
-		return 0;
+		co_return 0;
 	}
 
 	init_logs(log_level);
@@ -221,35 +221,46 @@ int do_main(int argc, char** argv) {
 		env.reset();
 	});
 
-	coro::CoroPool pool;
-	pool.exec([&] {
+	using namespace asio::experimental::awaitable_operators;
+
+	auto watch_signals = [&]() -> asio::awaitable<void> {
+		coro::SignalSet set({SIGINT, SIGTERM});
 		while (true) {
-			coro::SignalSet set({SIGINT, SIGTERM});
-			int signal = set.wait();
+			int signal = co_await set.wait();
 			if ((signal == SIGINT) && REPL_mode_is_active) {
 				REPL_mode_is_active = false;
 				continue;
 			}
 			throw Interruption();
 		}
-	});
+	};
 
-	if (selected_mode == mode::clean) {
-		return clean_mode(clean_args);
-	} else if (selected_mode == mode::run) {
-		run_args.params_names.push_back("TESTO_HYPERVISOR");
-		run_args.params_values.push_back(hypervisor);
-		return run_mode(run_args);
-	} else {
-		throw std::runtime_error("Unknown mode");
-	}
+	auto do_work = [&]() -> asio::awaitable<int> {
+		if (selected_mode == mode::clean) {
+			co_return co_await clean_mode(clean_args);
+		} else if (selected_mode == mode::run) {
+			run_args.params_names.push_back("TESTO_HYPERVISOR");
+			run_args.params_values.push_back(hypervisor);
+			co_return co_await run_mode(run_args);
+		} else {
+			throw std::runtime_error("Unknown mode");
+		}
+	};
+
+	int result = 0;
+	co_await ([&]() -> asio::awaitable<void> {
+		auto r = co_await (do_work() || watch_signals());
+		// index 0 = do_work finished (watch_signals never returns normally)
+		result = std::get<0>(r);
+	}());
+	co_return result;
 }
 
 int main(int argc, char** argv) {
 	int result = 0;
-	coro::Application([&]{
+	coro::Application([&]() -> asio::awaitable<void> {
 		try {
-			result = do_main(argc, argv);
+			result = co_await do_main(argc, argv);
 		} catch (const TestFailedException& error) {
 			std::cout << error << std::endl;
 			result = 1;

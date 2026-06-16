@@ -9,7 +9,7 @@ void RunModeArgs::validate() const {
 	ProgramConfig::validate();
 }
 
-int run_mode(const RunModeArgs& args) {
+asio::awaitable<int> run_mode(const RunModeArgs& args) {
 	TRACE();
 
 	args.validate();
@@ -17,7 +17,7 @@ int run_mode(const RunModeArgs& args) {
 	auto ast = parser.parse();
 	IR::Program program(ast, args);
 	program.validate();
-	program.run();
+	co_await program.run();
 
-	return 0;
+	co_return 0;
 }

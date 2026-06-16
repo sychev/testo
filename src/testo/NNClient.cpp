@@ -19,8 +19,6 @@ NNClient::NNClient(const std::string& endpoint_):
 	channel(new Channel(Socket()))
 {
 	TRACE();
-
-	establish_connection();
 }
 
 NNClient::~NNClient() {
@@ -43,14 +41,14 @@ bool is_connection_lost(const std::error_code& code) {
 	}
 }
 
-void NNClient::establish_connection() {
-	establish_connection_wrapper([&] {
+asio::awaitable<void> NNClient::establish_connection() {
+	co_await establish_connection_wrapper([&]() -> asio::awaitable<void> {
 		channel->socket = Socket();
-		channel->socket.connect(endpoint);
+		co_await channel->socket.connect(endpoint);
 	});
 
-	channel->send(create_handshake_request(client_version));
-	nlohmann::json response = channel->recv();
+	co_await channel->send(create_handshake_request(client_version));
+	nlohmann::json response = co_await channel->recv();
 	std::string type = response.at("type");
 	if (type == ERROR_RESPONSE) {
 		server_version = VersionNumber(3, 0, 0);
@@ -64,8 +62,8 @@ void NNClient::establish_connection() {
 	}
 }
 
-nlohmann::json NNClient::receive_response() {
-	nlohmann::json response = channel->recv();
+asio::awaitable<nlohmann::json> NNClient::receive_response() {
+	nlohmann::json response = co_await channel->recv();
 	std::string type = response.at("type");
 	if (type == ERROR_RESPONSE) {
 		std::string message = response.at("data");
@@ -75,51 +73,66 @@ nlohmann::json NNClient::receive_response() {
 		std::string message = response.at("data");
 		throw ContinueError(message);
 	}
-	return response;
+	co_return response;
 }
 
-void NNClient::establish_connection_wrapper(const std::function<void()>& fn) {
+asio::awaitable<void> NNClient::establish_connection_wrapper(const std::function<asio::awaitable<void>()>& fn) {
 	for (size_t i = 0; i < establish_connection_tries; ++i) {
+		bool need_retry = false;
 		try {
-			return fn();
+			co_await fn();
+			co_return;
 		} catch (const std::exception& error) {
 			std::cerr << error.what() << std::endl;
 			if (i < (establish_connection_tries - 1)) {
 				std::cerr << "Failed to connect to the server, reconnecting ...\n";
-				coro::Timer timer;
-				timer.waitFor(2s);
+				need_retry = true;
 			}
+		}
+		if (need_retry) {
+			co_await coro::Timer().waitFor(2s);
 		}
 	}
 
 	throw std::runtime_error("Exceeding the number of attempts to connect to the server");
 }
 
-nlohmann::json NNClient::rcp_wrapper(const std::function<nlohmann::json()>& fn) {
+asio::awaitable<nlohmann::json> NNClient::rcp_wrapper(const std::function<asio::awaitable<nlohmann::json>()>& fn) {
 	for (size_t i = 0; i < rpc_tries; ++i) {
+		bool reconnect_needed = false;
 		try {
-			return fn();
+			co_return co_await fn();
 		} catch (const std::system_error& error) {
 			if (is_connection_lost(error.code())) {
 				std::cerr << error.what() << std::endl;
 				if (i < (rpc_tries - 1)) {
 					std::cerr << "Lost the connection to the server, reconnecting...\n";
-					establish_connection();
+					reconnect_needed = true;
 				}
 			} else {
 				throw;
 			}
 		}
+		if (reconnect_needed) {
+			connected = false;
+			co_await establish_connection();
+			connected = true;
+		}
 	}
 	throw std::runtime_error("Exceeding the number of attempts to execute RPC");
 }
 
-nlohmann::json NNClient::eval_js(const stb::Image<stb::RGB>* image, const std::string& script) {
-	return rcp_wrapper([&] {
-		channel->send(create_js_eval_request(*image, script));
+asio::awaitable<nlohmann::json> NNClient::eval_js(const stb::Image<stb::RGB>* image, const std::string& script) {
+	if (!connected) {
+		co_await establish_connection();
+		connected = true;
+	}
+
+	co_return co_await rcp_wrapper([&]() -> asio::awaitable<nlohmann::json> {
+		co_await channel->send(create_js_eval_request(*image, script));
 
 		while (true) {
-			nlohmann::json response = receive_response();
+			nlohmann::json response = co_await receive_response();
 			std::string type = response.at("type");
 			if (type == REF_IMAGE_REQUEST) {
 				std::string ref_file_path = response.at("data");
@@ -131,10 +144,10 @@ nlohmann::json NNClient::eval_js(const stb::Image<stb::RGB>* image, const std::s
 					std::throw_with_nested(std::runtime_error("NN server requested image " + ref_file_path + " but we failed to open the file"));
 				}
 
-				channel->send(create_ref_image_response(ref_image));
+				co_await channel->send(create_ref_image_response(ref_image));
 				continue;
 			} else if (type == JS_EVAL_RESPONSE) {
-				return response;
+				co_return response;
 			} else {
 				throw std::runtime_error(std::string("Unexpected message type: ") + type);
 			}

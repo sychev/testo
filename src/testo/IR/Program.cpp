@@ -40,10 +40,10 @@ void Program::validate() {
 	semantic.visit();
 }
 
-void Program::run() {
+asio::awaitable<void> Program::run() {
 	TRACE();
 	VisitorInterpreter runner(config);
-	runner.visit();
+	co_await runner.visit();
 }
 
 std::shared_ptr<Macro> Program::get_macro_or_throw(const std::string& name) {

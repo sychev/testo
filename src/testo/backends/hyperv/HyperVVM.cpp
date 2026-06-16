@@ -1,8 +1,8 @@
 
-#include <coro/Timer.h>
 #include "HyperVGuestAdditions.hpp"
 #include "HyperVVM.hpp"
 #include <iostream>
+#include <thread>
 
 using namespace std::chrono_literals;
 
@@ -195,8 +195,7 @@ void HyperVVM::remove_disks() {
 				return;
 			} catch (const std::system_error& error) {
 				if (error.code() == std::error_code(ERROR_SHARING_VIOLATION, std::system_category())) {
-					coro::Timer timer;
-					timer.waitFor(1s);
+					std::this_thread::sleep_for(std::chrono::seconds(1));
 					continue;
 				} else {
 					throw;

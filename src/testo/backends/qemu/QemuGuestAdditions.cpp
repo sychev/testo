@@ -20,18 +20,18 @@ QemuGuestAdditions::QemuGuestAdditions(vir::Domain& domain) {
 	}
 
 	endpoint = Endpoint(path);
-	socket.connect(endpoint);
+	socket.handle().connect(endpoint);
 }
 
-void QemuGuestAdditions::send_raw(const uint8_t* data, size_t size) {
-	size_t n = socket.write(data, size);
+asio::awaitable<void> QemuGuestAdditions::send_raw(const uint8_t* data, size_t size) {
+	size_t n = co_await socket.write(data, size);
 	if (n != size) {
 		throw std::runtime_error(__PRETTY_FUNCTION__);
 	}
 }
 
-void QemuGuestAdditions::recv_raw(uint8_t* data, size_t size) {
-	size_t n = socket.read(data, size);
+asio::awaitable<void> QemuGuestAdditions::recv_raw(uint8_t* data, size_t size) {
+	size_t n = co_await socket.read(data, size);
 	if (n != size) {
 		throw std::runtime_error(__PRETTY_FUNCTION__);
 	}

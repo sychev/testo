@@ -8,7 +8,7 @@
 #include "../Exceptions.hpp"
 #include "../Logger.hpp"
 
-int clean_mode(const CleanModeArgs& args) {
+asio::awaitable<int> clean_mode(const CleanModeArgs& args) {
 	TRACE();
 
 	//cleanup networks
@@ -137,5 +137,5 @@ int clean_mode(const CleanModeArgs& args) {
 
 	}
 
-	return 0;
+	co_return 0;
 }

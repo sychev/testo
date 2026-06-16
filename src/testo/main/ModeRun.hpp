@@ -3,10 +3,11 @@
 
 #include <vector>
 #include <string>
+#include <asio/awaitable.hpp>
 #include "../Configs.hpp"
 
 struct RunModeArgs: ProgramConfig {
 	void validate() const;
 };
 
-int run_mode(const RunModeArgs& args);
+asio::awaitable<int> run_mode(const RunModeArgs& args);

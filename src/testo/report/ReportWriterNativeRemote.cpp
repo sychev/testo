@@ -17,7 +17,7 @@ void ReportWriterNativeRemote::launch_begin(const std::vector<std::shared_ptr<IR
 		tests_meta.push_back(to_json(test));
 	}
 
-	socket.connect(endpoint);
+	socket.handle().connect(endpoint);
 	send({
 		{"type", "launch_begin"},
 		{"current_launch", current_launch_meta},
@@ -100,11 +100,13 @@ void ReportWriterNativeRemote::launch_end() {
 nlohmann::json ReportWriterNativeRemote::recv() {
 	uint32_t msg_size;
 
-	socket.read((uint8_t*)&msg_size, 4);
+	// Synchronous I/O: report writing is not part of the cooperative-cancellation
+	// path, so it does not need to be a coroutine.
+	asio::read(socket.handle(), asio::buffer((uint8_t*)&msg_size, 4));
 
 	std::vector<uint8_t> json_data;
 	json_data.resize(msg_size);
-	socket.read((uint8_t*)json_data.data(), json_data.size());
+	asio::read(socket.handle(), asio::buffer(json_data.data(), json_data.size()));
 
 	return nlohmann::json::from_cbor(json_data);
 }
@@ -112,8 +114,8 @@ nlohmann::json ReportWriterNativeRemote::recv() {
 void ReportWriterNativeRemote::send(const nlohmann::json& json) {
 	std::vector<uint8_t> json_data = nlohmann::json::to_cbor(json);
 	uint32_t json_size = (uint32_t)json_data.size();
-	socket.write((uint8_t*)&json_size, sizeof(json_size));
-	socket.write((uint8_t*)json_data.data(), json_size);
+	asio::write(socket.handle(), asio::buffer((uint8_t*)&json_size, sizeof(json_size)));
+	asio::write(socket.handle(), asio::buffer(json_data.data(), json_size));
 }
 
 void ReportWriterNativeRemote::wait_for_confirmation() {

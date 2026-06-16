@@ -30,18 +30,18 @@ std::string GuidToString(GUID guid)
 HyperVGuestAdditions::HyperVGuestAdditions(hyperv::Machine& machine) {
 	std::string guid_str = machine.guid();
 	GUID vm_id = StringToGuid(guid_str);
-	socket.connect(hyperv::VSocketEndpoint(service_id, vm_id));
+	socket.handle().connect(hyperv::VSocketEndpoint(service_id, vm_id));
 }
 
-void HyperVGuestAdditions::send_raw(const uint8_t* data, size_t size) {
-	size_t n = socket.write(data, size);
+asio::awaitable<void> HyperVGuestAdditions::send_raw(const uint8_t* data, size_t size) {
+	size_t n = co_await socket.write(data, size);
 	if (n != size) {
 		throw std::runtime_error(__PRETTY_FUNCTION__);
 	}
 }
 
-void HyperVGuestAdditions::recv_raw(uint8_t* data, size_t size) {
-	size_t n = socket.read(data, size);
+asio::awaitable<void> HyperVGuestAdditions::recv_raw(uint8_t* data, size_t size) {
+	size_t n = co_await socket.read(data, size);
 	if (n != size) {
 		throw std::runtime_error(__PRETTY_FUNCTION__);
 	}

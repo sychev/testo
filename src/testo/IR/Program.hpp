@@ -5,6 +5,7 @@
 #include "Test.hpp"
 #include "Macro.hpp"
 #include "Param.hpp"
+#include <asio/awaitable.hpp>
 #include <unordered_set>
 #include <unordered_map>
 
@@ -20,7 +21,7 @@ struct Program {
 	Program& operator=(Program&& other) = delete;
 
 	void validate();
-	void run();
+	asio::awaitable<void> run();
 
 	const ProgramConfig& config;
 
