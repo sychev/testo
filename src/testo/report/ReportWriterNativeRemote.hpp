@@ -1,7 +1,8 @@
 
 #pragma once
 
-#include <coro/StreamSocket.h>
+#include <asio.hpp>
+#include "../Runtime.hpp"
 #include "ReportWriterNative.hpp"
 
 struct ReportWriterNativeRemote: ReportWriterNative {
@@ -21,7 +22,7 @@ struct ReportWriterNativeRemote: ReportWriterNative {
 	virtual void launch_end() override;
 
 private:
-	using Socket = coro::StreamSocket<asio::ip::tcp>;
+	using Socket = asio::ip::tcp::socket;
 	using Endpoint = asio::ip::tcp::endpoint;
 
 	Socket socket;
@@ -30,4 +31,7 @@ private:
 	nlohmann::json recv();
 	void send(const nlohmann::json& message);
 	void wait_for_confirmation();
+
+	void read_all(uint8_t* data, size_t size);
+	void write_all(const uint8_t* data, size_t size);
 };

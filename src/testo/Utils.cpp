@@ -1,6 +1,5 @@
 
-#include <coro/StreamSocket.h>
-#include <coro/CheckPoint.h>
+#include "Runtime.hpp"
 #include "Utils.hpp"
 #include <algorithm>
 #include <fstream>
@@ -41,7 +40,7 @@ void fs_copy_file(const fs::path& from, const fs::path& to) {
 
 	while ((size = source.read(buf, sizeof(buf))) > 0) {
 		dest.write(buf, size);
-		coro::CheckPoint();
+		g_io.poll(); if (g_interrupted) { throw Interruption(); }
 	}
 }
 

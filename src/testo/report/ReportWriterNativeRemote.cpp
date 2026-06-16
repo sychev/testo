@@ -3,7 +3,7 @@
 
 asio::ip::tcp::endpoint parse_tcp_endpoint(const std::string& endpoint);
 
-ReportWriterNativeRemote::ReportWriterNativeRemote(const ReportConfig& config): ReportWriterNative(config) {
+ReportWriterNativeRemote::ReportWriterNativeRemote(const ReportConfig& config): ReportWriterNative(config), socket(g_io) {
 	endpoint = parse_tcp_endpoint(config.report_folder);
 }
 
@@ -17,7 +17,26 @@ void ReportWriterNativeRemote::launch_begin(const std::vector<std::shared_ptr<IR
 		tests_meta.push_back(to_json(test));
 	}
 
-	socket.connect(endpoint);
+	{
+		std::error_code op_ec;
+		bool done = false;
+		auto prev_cancel = g_cancel_current;
+		g_cancel_current = [this]{ socket.cancel(); };
+		socket.async_connect(endpoint, [&](const std::error_code& ec) {
+			op_ec = ec;
+			done = true;
+		});
+		while (!done) {
+			g_io.run_one();
+		}
+		g_cancel_current = prev_cancel;
+		if (op_ec == asio::error::operation_aborted && g_interrupted) {
+			throw Interruption();
+		}
+		if (op_ec) {
+			throw std::system_error(op_ec);
+		}
+	}
 	send({
 		{"type", "launch_begin"},
 		{"current_launch", current_launch_meta},
@@ -97,14 +116,56 @@ void ReportWriterNativeRemote::launch_end() {
 	wait_for_confirmation();
 }
 
+void ReportWriterNativeRemote::read_all(uint8_t* data, size_t size) {
+	std::error_code op_ec;
+	bool done = false;
+	auto prev_cancel = g_cancel_current;
+	g_cancel_current = [this]{ socket.cancel(); };
+	asio::async_read(socket, asio::buffer(data, size), [&](const std::error_code& ec, size_t) {
+		op_ec = ec;
+		done = true;
+	});
+	while (!done) {
+		g_io.run_one();
+	}
+	g_cancel_current = prev_cancel;
+	if (op_ec == asio::error::operation_aborted && g_interrupted) {
+		throw Interruption();
+	}
+	if (op_ec) {
+		throw std::system_error(op_ec);
+	}
+}
+
+void ReportWriterNativeRemote::write_all(const uint8_t* data, size_t size) {
+	std::error_code op_ec;
+	bool done = false;
+	auto prev_cancel = g_cancel_current;
+	g_cancel_current = [this]{ socket.cancel(); };
+	asio::async_write(socket, asio::buffer(data, size), [&](const std::error_code& ec, size_t) {
+		op_ec = ec;
+		done = true;
+	});
+	while (!done) {
+		g_io.run_one();
+	}
+	g_cancel_current = prev_cancel;
+	if (op_ec == asio::error::operation_aborted && g_interrupted) {
+		throw Interruption();
+	}
+	if (op_ec) {
+		throw std::system_error(op_ec);
+	}
+}
+
 nlohmann::json ReportWriterNativeRemote::recv() {
 	uint32_t msg_size;
 
-	socket.read((uint8_t*)&msg_size, 4);
+	read_all((uint8_t*)&msg_size, 4);
 
 	std::vector<uint8_t> json_data;
 	json_data.resize(msg_size);
-	socket.read((uint8_t*)json_data.data(), json_data.size());
+	read_all((uint8_t*)json_data.data(), json_data.size());
 
 	return nlohmann::json::from_cbor(json_data);
 }
@@ -112,8 +173,8 @@ nlohmann::json ReportWriterNativeRemote::recv() {
 void ReportWriterNativeRemote::send(const nlohmann::json& json) {
 	std::vector<uint8_t> json_data = nlohmann::json::to_cbor(json);
 	uint32_t json_size = (uint32_t)json_data.size();
-	socket.write((uint8_t*)&json_size, sizeof(json_size));
-	socket.write((uint8_t*)json_data.data(), json_size);
+	write_all((uint8_t*)&json_size, sizeof(json_size));
+	write_all((uint8_t*)json_data.data(), json_size);
 }
 
 void ReportWriterNativeRemote::wait_for_confirmation() {

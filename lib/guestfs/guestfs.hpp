@@ -3,6 +3,7 @@
 
 #include <iostream>
 #include <stdexcept>
+#include <chrono>
 #include <guestfs.h>
 #include "file.hpp"
 
@@ -13,6 +14,10 @@ struct Guestfs {
 	Guestfs& operator=(const Guestfs& other) = delete;
 	Guestfs(const fs::path& path);
 	~Guestfs();
+
+	// Абсолютный дедлайн заливки/скачивания (заменяет ambient coro::Timeout).
+	// Проверяется в чанковых циклах upload_file/download_file. max() == без таймаута.
+	std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max();
 
 	std::vector<std::string> list_partitions() const;
 

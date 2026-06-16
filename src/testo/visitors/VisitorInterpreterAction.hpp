@@ -76,4 +76,9 @@ struct VisitorInterpreterAction {
 	std::shared_ptr<StackNode> stack;
 	Reporter& reporter;
 	bool ignore_repl;
+
+protected:
+	// Блокирующее ожидание на asio::steady_timer (замена coro::Timer::waitFor):
+	// прерываемо по Ctrl-C через g_cancel_current.
+	void wait_for(std::chrono::steady_clock::duration interval);
 };

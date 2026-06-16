@@ -4,8 +4,7 @@
 #include "QemuGuestAdditions.hpp"
 #include "QemuEnvironment.hpp"
 
-#include <coro/Timer.h>
-#include <coro/Timeout.h>
+#include "../../Runtime.hpp"
 
 #include <os/Process.hpp>
 
@@ -1896,8 +1895,7 @@ void QemuVM::suspend() {
 
 void QemuVM::resume() {
 	try {
-		coro::Timeout timeout(10s);
-		coro::Timer timer;
+		auto deadline = std::chrono::steady_clock::now() + 10s;
 		while (true) {
 			{
 				auto domain = qemu_connect.domain_lookup_by_name(id());
@@ -1908,7 +1906,26 @@ void QemuVM::resume() {
 				if (domain.state() == VIR_DOMAIN_RUNNING) {
 					return;
 				} else {
-					timer.waitFor(100ms);
+					if (std::chrono::steady_clock::now() > deadline) {
+						throw std::runtime_error("Timeout");
+					}
+					asio::steady_timer timer(g_io);
+					timer.expires_after(100ms);
+					std::error_code op_ec;
+					bool done = false;
+					auto prev_cancel = g_cancel_current;
+					g_cancel_current = [&]{ timer.cancel(); };
+					timer.async_wait([&](const std::error_code& ec) {
+						op_ec = ec;
+						done = true;
+					});
+					while (!done) {
+						g_io.run_one();
+					}
+					g_cancel_current = prev_cancel;
+					if (op_ec == asio::error::operation_aborted && g_interrupted) {
+						throw Interruption();
+					}
 				}
 			}
 		}

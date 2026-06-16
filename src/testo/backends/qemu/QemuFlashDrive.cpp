@@ -1,6 +1,4 @@
 
-#include <coro/Timer.h>
-#include <coro/Timeout.h>
 #include <os/Process.hpp>
 #include <pugixml/pugixml.hpp>
 #include <guestfs/guestfs.hpp>
@@ -127,6 +125,7 @@ void QemuFlashDrive::undefine() {
 void QemuFlashDrive::upload(const fs::path& from, const fs::path& to) {
 	try {
 		guestfs::Guestfs gfs(img_path());
+		gfs.deadline = deadline;
 		gfs.mount();
 
 		if (to.has_parent_path()) {
@@ -141,6 +140,7 @@ void QemuFlashDrive::upload(const fs::path& from, const fs::path& to) {
 void QemuFlashDrive::download(const fs::path& from, const fs::path& to) {
 	try {
 		guestfs::Guestfs gfs(img_path());
+		gfs.deadline = deadline;
 		gfs.mount();
 
 		if (to.has_parent_path()) {

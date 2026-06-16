@@ -1,8 +1,7 @@
 
-#include <coro/CheckPoint.h>
-#include <coro/Timeout.h>
 #include "VisitorInterpreterActionMachine.hpp"
 #include "../NNClient.hpp"
+#include "../Runtime.hpp"
 #include "../Exceptions.hpp"
 #include "../Logger.hpp"
 #include "../backends/Environment.hpp"
@@ -172,7 +171,10 @@ void VisitorInterpreterActionMachine::visit_action(std::shared_ptr<AST::Action> 
 		throw std::runtime_error("Should never happen");
 	}
 
-	coro::CheckPoint();
+	g_io.poll();
+	if (g_interrupted) {
+		throw Interruption();
+	}
 }
 
 void VisitorInterpreterActionMachine::visit_copy(const IR::Copy& copy) {
@@ -180,13 +182,12 @@ void VisitorInterpreterActionMachine::visit_copy(const IR::Copy& copy) {
 	try {
 		reporter.copy(current_controller, copy);
 
-		coro::Timeout timeout(copy.timeout().value());
-
 		if (vmc->vm()->state() != VmState::Running) {
 			throw std::runtime_error(fmt::format("virtual machine is not running"));
 		}
 
 		auto ga = vmc->vm()->guest_additions();
+		auto guard = ga->with_deadline(copy.timeout().value());
 
 		if (!ga->is_avaliable()) {
 			throw std::runtime_error(fmt::format("guest additions are not installed"));
@@ -252,7 +253,7 @@ void VisitorInterpreterActionMachine::visit_key_combination(const IR::KeyCombina
 	for (auto it = buttons.rbegin(); it != buttons.rend(); ++it) {
 		vmc->release(*it);
 	}
-	timer.waitFor(interval);
+	wait_for(interval);
 }
 
 void VisitorInterpreterActionMachine::execute_keyboard_commands(const std::vector<KeyboardCommand>& commands, std::chrono::milliseconds interval) {
@@ -261,7 +262,7 @@ void VisitorInterpreterActionMachine::execute_keyboard_commands(const std::vecto
 			if ((commands[i-1].action == KeyboardAction::Release) &&
 				(commands[i].action == KeyboardAction::Hold))
 			{
-				timer.waitFor(interval);
+				wait_for(interval);
 			}
 		}
 		switch (commands[i].action) {
@@ -276,7 +277,7 @@ void VisitorInterpreterActionMachine::execute_keyboard_commands(const std::vecto
 		}
 	}
 	if (commands.size()) {
-		timer.waitFor(interval);
+		wait_for(interval);
 	}
 }
 
@@ -684,7 +685,7 @@ void VisitorInterpreterActionMachine::visit_mouse_move_click(const IR::MouseMove
 
 		auto mouse_press = [&](MouseButton button) {
 			vmc->mouse_hold(button);
-			timer.waitFor(std::chrono::milliseconds(60));
+			wait_for(std::chrono::milliseconds(60));
 			vmc->mouse_release();
 		};
 
@@ -696,7 +697,7 @@ void VisitorInterpreterActionMachine::visit_mouse_move_click(const IR::MouseMove
 			mouse_press(MouseButton::Middle);
 		} else if (mouse_move_click.event_type() == "dclick") {
 			mouse_press(MouseButton::Left);
-			timer.waitFor(std::chrono::milliseconds(60));
+			wait_for(std::chrono::milliseconds(60));
 			mouse_press(MouseButton::Left);
 		} else {
 			throw std::runtime_error("Unsupported click type");
@@ -744,7 +745,7 @@ void VisitorInterpreterActionMachine::visit_mouse_wheel(const IR::MouseWheel& mo
 
 		auto mouse_press = [&](MouseButton button) {
 			vmc->mouse_hold(button);
-			timer.waitFor(std::chrono::milliseconds(60));
+			wait_for(std::chrono::milliseconds(60));
 			vmc->mouse_release();
 		};
 
@@ -891,7 +892,7 @@ void VisitorInterpreterActionMachine::visit_unplug_dvd(const IR::PlugDVD& plug_d
 		if (!vmc->vm()->is_dvd_plugged()) {
 			return;
 		}
-		timer.waitFor(std::chrono::milliseconds(300));
+		wait_for(std::chrono::milliseconds(300));
 	}
 
 	throw std::runtime_error(fmt::format("Timeout expired for unplugging dvd"));
@@ -957,7 +958,7 @@ void VisitorInterpreterActionMachine::visit_start(const IR::Start& start) {
 			if (vmc->vm()->state() == VmState::Running) {
 				return;
 			}
-			timer.waitFor(std::chrono::milliseconds(300));
+			wait_for(std::chrono::milliseconds(300));
 		}
 		throw std::runtime_error("Start timeout");
 	} catch (const std::exception& error) {
@@ -987,7 +988,7 @@ void VisitorInterpreterActionMachine::visit_shutdown(const IR::Shutdown& shutdow
 			if (vmc->vm()->state() == VmState::Stopped) {
 				return;
 			}
-			timer.waitFor(std::chrono::milliseconds(300));
+			wait_for(std::chrono::milliseconds(300));
 		}
 		throw std::runtime_error("Shutdown timeout");
 	} catch (const std::exception& error) {
@@ -1059,7 +1060,7 @@ void VisitorInterpreterActionMachine::visit_exec(const IR::Exec& exec) {
 
 		command += " " + guest_script_file.generic_string();
 
-		coro::Timeout timeout(exec.timeout().value());
+		auto guard = ga->with_deadline(exec.timeout().value());
 
 		nlohmann::json result = ga->execute(command, *vmc->get_vars(), [&](const std::string& output) {
 			reporter.exec_command_output(output);
@@ -1126,9 +1127,12 @@ bool VisitorInterpreterActionMachine::screenshot_loop(Func&& func, std::chrono::
 
 		auto end = std::chrono::high_resolution_clock::now();
 		if (interval > end - start) {
-			timer.waitFor(interval - (end - start));
+			wait_for(interval - (end - start));
 		} else {
-			coro::CheckPoint();
+			g_io.poll();
+			if (g_interrupted) {
+				throw Interruption();
+			}
 		}
 	} while (std::chrono::steady_clock::now() < deadline);
 

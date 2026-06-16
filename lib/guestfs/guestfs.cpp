@@ -1,7 +1,7 @@
 
 #include "guestfs.hpp"
 #include "posixapi/File.hpp"
-#include "coro/CheckPoint.h"
+#include <testo/Runtime.hpp>
 
 namespace guestfs {
 
@@ -87,7 +87,13 @@ void Guestfs::upload_file(const fs::path& from, const fs::path& to) {
 	size_t size;
 	while ((size = source.read(buf, sizeof(buf))) > 0) {
 		dest.write(buf, size);
-		coro::CheckPoint();
+		g_io.poll();
+		if (g_interrupted) {
+			throw Interruption();
+		}
+		if (std::chrono::steady_clock::now() > deadline) {
+			throw std::runtime_error("Timeout");
+		}
 	}
 }
 
@@ -161,7 +167,13 @@ void Guestfs::download_file(const fs::path& from, const fs::path& to) {
 	size_t size;
 	while ((size = source.read(buf, sizeof(buf))) > 0) {
 		dest.write(buf, size);
-		coro::CheckPoint();
+		g_io.poll();
+		if (g_interrupted) {
+			throw Interruption();
+		}
+		if (std::chrono::steady_clock::now() > deadline) {
+			throw std::runtime_error("Timeout");
+		}
 	}
 }
 

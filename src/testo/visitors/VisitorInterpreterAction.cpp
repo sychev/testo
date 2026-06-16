@@ -1,12 +1,31 @@
 
-#include <coro/Timer.h>
 #include "VisitorInterpreterAction.hpp"
 #include "../Exceptions.hpp"
 #include "../IR/Program.hpp"
-#include <coro/Finally.h>
+#include "../Runtime.hpp"
 #include "../Logger.hpp"
 
 extern std::atomic<bool> REPL_mode_is_active;
+
+void VisitorInterpreterAction::wait_for(std::chrono::steady_clock::duration interval) {
+	asio::steady_timer timer(g_io);
+	timer.expires_after(interval);
+	std::error_code op_ec;
+	bool done = false;
+	auto prev_cancel = g_cancel_current;
+	g_cancel_current = [&]{ timer.cancel(); };
+	timer.async_wait([&](const std::error_code& ec) {
+		op_ec = ec;
+		done = true;
+	});
+	while (!done) {
+		g_io.run_one();
+	}
+	g_cancel_current = prev_cancel;
+	if (op_ec == asio::error::operation_aborted && g_interrupted) {
+		throw Interruption();
+	}
+}
 
 void VisitorInterpreterAction::visit_action_block(std::shared_ptr<AST::Block<AST::Action>> action_block) {
 	for (auto action: action_block->items) {
@@ -105,8 +124,7 @@ void VisitorInterpreterAction::visit_bug(const IR::Bug& bug) {
 void VisitorInterpreterAction::visit_sleep(const IR::Sleep& sleep) {
 	TRACE();
 	reporter.sleep(current_controller, sleep);
-	coro::Timer timer;
-	timer.waitFor(sleep.timeout().value());
+	wait_for(sleep.timeout().value());
 }
 
 void VisitorInterpreterAction::visit_macro_call(const IR::MacroCall& macro_call) {

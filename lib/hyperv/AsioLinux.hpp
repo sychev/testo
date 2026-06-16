@@ -1,8 +1,7 @@
 
 #pragma once
 
-#include <coro/Acceptor.h>
-#include <coro/StreamSocket.h>
+#include <asio.hpp>
 #include <linux/vm_sockets.h>
 
 namespace hyperv {
@@ -61,8 +60,5 @@ struct VSocketEndpoint {
 private:
 	sockaddr_vm sa_;
 };
-
-using Acceptor = coro::Acceptor<hyperv::VSocketProtocol>;
-using Socket = coro::StreamSocket<hyperv::VSocketProtocol>;
 
 }

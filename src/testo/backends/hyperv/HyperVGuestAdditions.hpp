@@ -1,7 +1,7 @@
 
 #pragma once
 
-#include <coro/StreamSocket.h>
+#include <asio.hpp>
 #include <testo_guest_additions_protocol/GuestAdditions.hpp>
 #include <hyperv/Machine.hpp>
 #ifdef WIN32
@@ -17,7 +17,7 @@ private:
 	virtual void send_raw(const uint8_t* data, size_t size) override;
 	virtual void recv_raw(uint8_t* data, size_t size) override;
 
-	using Socket = coro::StreamSocket<hyperv::VSocketProtocol>;
+	using Socket = asio::basic_stream_socket<hyperv::VSocketProtocol>;
 
 	Socket socket;
 };

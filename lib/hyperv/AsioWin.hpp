@@ -1,8 +1,7 @@
 
 #pragma once
 
-#include <coro/Acceptor.h>
-#include <coro/StreamSocket.h>
+#include <asio.hpp>
 #include <ws2def.h>
 #include <hvsocket.h>
 

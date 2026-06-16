@@ -1,7 +1,6 @@
 
-#include <coro/CheckPoint.h>
-#include <coro/Timeout.h>
 #include "VisitorInterpreterActionFlashDrive.hpp"
+#include "../Runtime.hpp"
 #include "../Exceptions.hpp"
 #include "../Logger.hpp"
 #include <fmt/format.h>
@@ -37,7 +36,7 @@ void VisitorInterpreterActionFlashDrive::visit_action(std::shared_ptr<AST::Actio
 		throw std::runtime_error("Should never happen");
 	}
 
-	coro::CheckPoint();
+	g_io.poll(); if (g_interrupted) { throw Interruption(); }
 }
 
 void VisitorInterpreterActionFlashDrive::visit_copy(const IR::Copy& copy) {
@@ -45,7 +44,7 @@ void VisitorInterpreterActionFlashDrive::visit_copy(const IR::Copy& copy) {
 	try {
 		reporter.copy(current_controller, copy);
 
-		coro::Timeout timeout(copy.timeout().value());
+		auto guard = fdc->fd()->with_deadline(copy.timeout().value());
 
 		for (auto vmc: current_test->get_all_machines()) {
 			if (vmc->vm()->is_flash_plugged(fdc->fd())) {
