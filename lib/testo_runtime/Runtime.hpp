@@ -2,7 +2,7 @@
 #pragma once
 
 #include <asio.hpp>
-#include <testo_nn_server_protocol/Interruption.hpp>
+#include <interruption/Interruption.hpp>
 
 /*
 	Единственный io_context хостового процесса testo.

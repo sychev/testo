@@ -4,7 +4,7 @@
 #include "QemuGuestAdditions.hpp"
 #include "QemuEnvironment.hpp"
 
-#include "../../Runtime.hpp"
+#include <testo_runtime/Runtime.hpp>
 
 #include <os/Process.hpp>
 

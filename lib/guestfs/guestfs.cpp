@@ -1,7 +1,7 @@
 
 #include "guestfs.hpp"
 #include "posixapi/File.hpp"
-#include <testo/Runtime.hpp>
+#include <testo_runtime/Runtime.hpp>
 
 namespace guestfs {
 

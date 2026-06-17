@@ -33,9 +33,9 @@ continuation'ам. Вместо этого мы оставили код **син
 
 | Переменная | Где объявлена | Что это |
 |---|---|---|
-| `g_io` | `src/testo/Runtime.hpp` | единственный `asio::io_context` хоста |
-| `g_interrupted` | `Interruption.hpp` | `atomic<bool>`, взводится обработчиком сигнала |
-| `g_cancel_current` | `Interruption.hpp` | `function<void()>`, «отмени мою текущую asio-операцию» |
+| `g_io` | `lib/testo_runtime/Runtime.hpp` | единственный `asio::io_context` хоста |
+| `g_interrupted` | `lib/interruption/Interruption.hpp` | `atomic<bool>`, взводится обработчиком сигнала |
+| `g_cancel_current` | `lib/interruption/Interruption.hpp` | `function<void()>`, «отмени мою текущую asio-операцию» |
 
 ---
 
@@ -231,7 +231,7 @@ void VisitorInterpreterAction::wait_for(std::chrono::steady_clock::duration inte
 исключение `CancelError` прямо внутрь спящей корутины. У нас корутин нет — как
 доставить исключение в код, который сейчас сидит в `while(!done) run_one()`?
 
-Ответ — через два глобала (`Interruption.hpp`):
+Ответ — через два глобала (`lib/interruption/Interruption.hpp`):
 
 ```cpp
 struct Interruption {};                       // исключение-«нас прервали»
@@ -671,8 +671,8 @@ while (true) {
 | Что | Файл |
 |---|---|
 | Глобалы и обработчик сигнала | `src/testo/main/main.cpp` |
-| Объявление `g_io` | `src/testo/Runtime.hpp` |
-| Контракт прерывания | `src/testo_nn_server_protocol/Interruption.hpp` |
+| Объявление `g_io` | `lib/testo_runtime/Runtime.hpp` |
+| Контракт прерывания | `lib/interruption/Interruption.hpp` |
 | Простейший фасад (таймер) | `src/testo/visitors/VisitorInterpreterAction.cpp` (`wait_for`) |
 | Фасад с таймаутом (две операции) | `src/testo/backends/qemu/QemuGuestAdditions.cpp` |
 | Дедлайны / `DeadlineGuard` | `src/testo_guest_additions_protocol/GuestAdditions.hpp` |

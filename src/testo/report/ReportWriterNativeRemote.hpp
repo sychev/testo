@@ -2,7 +2,7 @@
 #pragma once
 
 #include <asio.hpp>
-#include "../Runtime.hpp"
+#include <testo_runtime/Runtime.hpp>
 #include "ReportWriterNative.hpp"
 
 struct ReportWriterNativeRemote: ReportWriterNative {

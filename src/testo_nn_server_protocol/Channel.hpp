@@ -7,7 +7,7 @@
 #include <iostream>
 
 #include "Messages.hpp"
-#include "Interruption.hpp"
+#include <interruption/Interruption.hpp>
 #include <nlohmann/json.hpp>
 
 #include <asio.hpp>

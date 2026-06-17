@@ -2,7 +2,7 @@
 #include "VisitorInterpreterAction.hpp"
 #include "../Exceptions.hpp"
 #include "../IR/Program.hpp"
-#include "../Runtime.hpp"
+#include <testo_runtime/Runtime.hpp>
 #include "../Logger.hpp"
 
 extern std::atomic<bool> REPL_mode_is_active;

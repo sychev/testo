@@ -1,6 +1,6 @@
 
 #include "HyperVGuestAdditions.hpp"
-#include "../../Runtime.hpp"
+#include <testo_runtime/Runtime.hpp>
 
 #define HYPERV_PORT 1234
 DEFINE_GUID(service_id, HYPERV_PORT, 0xfacb, 0x11e6, 0xbd, 0x58, 0x64, 0x00, 0x6a, 0x79, 0x86, 0xd3);

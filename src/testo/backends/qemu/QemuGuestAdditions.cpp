@@ -1,6 +1,6 @@
 
 #include "QemuGuestAdditions.hpp"
-#include "../../Runtime.hpp"
+#include <testo_runtime/Runtime.hpp>
 
 QemuGuestAdditions::QemuGuestAdditions(vir::Domain& domain): socket(g_io) {
 	auto config = domain.dump_xml();
