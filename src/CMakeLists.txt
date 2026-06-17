@@ -18,4 +18,5 @@ add_subdirectory_if_exists(testo_guest_additions)
 endif()
 
 add_subdirectory_if_exists(testo_guest_additions_protocol)
-add_subdirectory_if_exists(testo_nn_server)
+# testo_nn_server is excluded from the build (maintained separately).
+# add_subdirectory_if_exists(testo_nn_server)

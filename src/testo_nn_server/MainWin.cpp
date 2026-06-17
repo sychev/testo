@@ -3,15 +3,10 @@
 #include <tchar.h>
 #include <winapi/Functions.hpp>
 
-// Контракт прерывания, требуемый общим Channel (Interruption.hpp).
-std::atomic<bool> g_interrupted(false);
-std::function<void()> g_cancel_current;
-
-nlohmann::json g_nn_settings;
+std::unique_ptr<coro::Application> app;
 
 void StopApp() {
-	// Останавливаем io_context: блокирующий accept-цикл проснётся и выйдет.
-	g_nn_io.stop();
+	app->cancel();
 }
 
 #define SERVICE_NAME _T("Testo NN Server")
@@ -52,9 +47,9 @@ void ServiceMain(int argc, char** argv) {
 	spdlog::info("NN server start");
 	serviceStatus.dwCurrentState = SERVICE_RUNNING;
 	SetServiceStatus(serviceStatusHandle, &serviceStatus);
-
-	app_main(g_nn_settings);
-
+	
+	app->run();
+	
 	spdlog::info("NN server stop");
 	serviceStatus.dwCurrentState = SERVICE_STOPPED;
 	SetServiceStatus(serviceStatusHandle, &serviceStatus);
@@ -72,7 +67,9 @@ int _tmain(int argc, TCHAR *argv[]) {
 			settings["log_file"] = logs_path;
 		}
 
-		g_nn_settings = settings;
+		app.reset(new coro::Application([=] {
+			app_main(settings);
+		}));
 
 		SERVICE_TABLE_ENTRY ServiceTable[] =
 		{

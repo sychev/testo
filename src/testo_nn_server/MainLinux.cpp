@@ -2,11 +2,6 @@
 #include "Main.hpp"
 #include <clipp.h>
 
-// Контракт прерывания, требуемый общим Channel (Interruption.hpp).
-// Сервер его не взводит — работает до завершения процесса.
-std::atomic<bool> g_interrupted(false);
-std::function<void()> g_cancel_current;
-
 #define APP_NAME "testo_nn_server"
 #define PID_FILE_PATH ("/var/run/" APP_NAME ".pid")
 #define LOG_FILE_PATH ("/var/log/" APP_NAME ".log")
@@ -112,7 +107,9 @@ void start(const StartArgs& args) {
 		settings["log_file"] = LOG_FILE_PATH;
 	}
 
-	app_main(settings);
+	coro::Application([&] {
+		app_main(settings);
+	}).run();
 }
 
 void stop() {
