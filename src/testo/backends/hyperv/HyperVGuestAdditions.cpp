@@ -32,100 +32,32 @@ HyperVGuestAdditions::HyperVGuestAdditions(hyperv::Machine& machine): socket(g_i
 	std::string guid_str = machine.guid();
 	GUID vm_id = StringToGuid(guid_str);
 
-	std::error_code op_ec;
-	bool done = false;
-	auto prev_cancel = g_cancel_current;
-	g_cancel_current = [this]{ socket.cancel(); };
-	socket.async_connect(hyperv::VSocketEndpoint(service_id, vm_id), [&](const std::error_code& ec) {
-		op_ec = ec;
-		done = true;
-	});
-	while (!done) {
-		g_io.run_one();
-	}
-	g_cancel_current = prev_cancel;
-	if (op_ec == asio::error::operation_aborted && g_interrupted) {
-		throw Interruption();
-	}
-	if (op_ec) {
-		throw std::system_error(op_ec);
+	auto ec = await_io(socket, [&](auto h){ socket.async_connect(hyperv::VSocketEndpoint(service_id, vm_id), h); });
+	if (ec) {
+		throw std::system_error(ec);
 	}
 }
 
 void HyperVGuestAdditions::send_raw(const uint8_t* data, size_t size) {
-	std::error_code op_ec;
-	int outstanding = 1;
-	asio::steady_timer timer(g_io);
-	bool timed = deadline != std::chrono::steady_clock::time_point::max();
-	if (timed) {
-		++outstanding;
-		timer.expires_at(deadline);
-		timer.async_wait([&](const std::error_code& ec) {
-			--outstanding;
-			if (!ec) {
-				socket.cancel();
-			}
-		});
-	}
-	auto prev_cancel = g_cancel_current;
-	g_cancel_current = [this]{ socket.cancel(); };
-	asio::async_write(socket, asio::buffer(data, size), [&](const std::error_code& ec, size_t) {
-		op_ec = ec;
-		--outstanding;
-		if (timed) {
-			timer.cancel();
-		}
-	});
-	while (outstanding) {
-		g_io.run_one();
-	}
-	g_cancel_current = prev_cancel;
-	if (op_ec == asio::error::operation_aborted && g_interrupted) {
-		throw Interruption();
-	}
-	if (op_ec == asio::error::operation_aborted) {
+	auto ec = await_io(socket,
+		[&](auto h){ asio::async_write(socket, asio::buffer(data, size), h); },
+		deadline);
+	if (ec == asio::error::operation_aborted) {
 		throw std::runtime_error("Timeout");
 	}
-	if (op_ec) {
-		throw std::system_error(op_ec);
+	if (ec) {
+		throw std::system_error(ec);
 	}
 }
 
 void HyperVGuestAdditions::recv_raw(uint8_t* data, size_t size) {
-	std::error_code op_ec;
-	int outstanding = 1;
-	asio::steady_timer timer(g_io);
-	bool timed = deadline != std::chrono::steady_clock::time_point::max();
-	if (timed) {
-		++outstanding;
-		timer.expires_at(deadline);
-		timer.async_wait([&](const std::error_code& ec) {
-			--outstanding;
-			if (!ec) {
-				socket.cancel();
-			}
-		});
-	}
-	auto prev_cancel = g_cancel_current;
-	g_cancel_current = [this]{ socket.cancel(); };
-	asio::async_read(socket, asio::buffer(data, size), [&](const std::error_code& ec, size_t) {
-		op_ec = ec;
-		--outstanding;
-		if (timed) {
-			timer.cancel();
-		}
-	});
-	while (outstanding) {
-		g_io.run_one();
-	}
-	g_cancel_current = prev_cancel;
-	if (op_ec == asio::error::operation_aborted && g_interrupted) {
-		throw Interruption();
-	}
-	if (op_ec == asio::error::operation_aborted) {
+	auto ec = await_io(socket,
+		[&](auto h){ asio::async_read(socket, asio::buffer(data, size), h); },
+		deadline);
+	if (ec == asio::error::operation_aborted) {
 		throw std::runtime_error("Timeout");
 	}
-	if (op_ec) {
-		throw std::system_error(op_ec);
+	if (ec) {
+		throw std::system_error(ec);
 	}
 }

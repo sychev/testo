@@ -47,23 +47,9 @@ void NNClient::establish_connection() {
 	establish_connection_wrapper([&] {
 		channel->socket = Socket(g_io);
 
-		std::error_code op_ec;
-		bool done = false;
-		auto prev_cancel = g_cancel_current;
-		g_cancel_current = [&]{ channel->socket.cancel(); };
-		channel->socket.async_connect(endpoint, [&](const std::error_code& ec) {
-			op_ec = ec;
-			done = true;
-		});
-		while (!done) {
-			g_io.run_one();
-		}
-		g_cancel_current = prev_cancel;
-		if (op_ec == asio::error::operation_aborted && g_interrupted) {
-			throw Interruption();
-		}
-		if (op_ec) {
-			throw std::system_error(op_ec);
+		auto ec = await_io(channel->socket, [&](auto h){ channel->socket.async_connect(endpoint, h); });
+		if (ec) {
+			throw std::system_error(ec);
 		}
 	});
 
@@ -104,24 +90,7 @@ void NNClient::establish_connection_wrapper(const std::function<void()>& fn) {
 			std::cerr << error.what() << std::endl;
 			if (i < (establish_connection_tries - 1)) {
 				std::cerr << "Failed to connect to the server, reconnecting ...\n";
-
-				asio::steady_timer timer(g_io);
-				timer.expires_after(2s);
-				std::error_code op_ec;
-				bool done = false;
-				auto prev_cancel = g_cancel_current;
-				g_cancel_current = [&]{ timer.cancel(); };
-				timer.async_wait([&](const std::error_code& ec) {
-					op_ec = ec;
-					done = true;
-				});
-				while (!done) {
-					g_io.run_one();
-				}
-				g_cancel_current = prev_cancel;
-				if (op_ec == asio::error::operation_aborted && g_interrupted) {
-					throw Interruption();
-				}
+				interruptible_sleep_for(2s);
 			}
 		}
 	}

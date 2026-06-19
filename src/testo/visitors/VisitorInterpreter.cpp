@@ -384,7 +384,7 @@ void VisitorInterpreter::delete_parents_hypervisor_snapshots_if_needed(const std
 				if (controller->has_hypervisor_snapshot(parent->name())) {
 					reporter.delete_hypervisor_snapshot(controller, parent->name());
 					controller->delete_hypervisor_snapshot(parent->name());
-					g_io.poll(); if (g_interrupted) { throw Interruption(); }
+					check_interruption();
 				}
 			}
 		}
@@ -398,7 +398,7 @@ void VisitorInterpreter::restore_parents_controllers_if_needed(const std::shared
 			if (controller->current_state != parent->name()) {
 				reporter.restore_snapshot(controller, parent->name());
 				controller->restore_snapshot(parent->name());
-				g_io.poll(); if (g_interrupted) { throw Interruption(); }
+				check_interruption();
 			}
 		}
 	}
@@ -442,14 +442,14 @@ void VisitorInterpreter::install_new_controllers_if_needed(const std::shared_ptr
 			{
 				reporter.restore_snapshot(controller, "initial");
 				controller->restore_snapshot("_init");
-				g_io.poll(); if (g_interrupted) { throw Interruption(); }
+				check_interruption();
 			} else {
 				reporter.create_controller(controller);
 				controller->create();
 				reporter.take_snapshot(controller, "initial");
 				controller->create_snapshot("_init", "", true);
 				controller->current_state = "_init";
-				g_io.poll(); if (g_interrupted) { throw Interruption(); }
+				check_interruption();
 			}
 		}
 	}
@@ -483,7 +483,7 @@ void VisitorInterpreter::create_all_controllers_snapshots(const std::shared_ptr<
 		if (!controller->has_snapshot(test->name(), test->is_hypervisor_snapshot_needed())) {
 			reporter.take_snapshot(controller, test->name());
 			controller->create_snapshot(test->name(), test->cksum, test->is_hypervisor_snapshot_needed());
-			g_io.poll(); if (g_interrupted) { throw Interruption(); }
+			check_interruption();
 		}
 		controller->current_state = test->name();
 	}
@@ -493,7 +493,7 @@ void VisitorInterpreter::create_all_controllers_snapshots(const std::shared_ptr<
 		if (!controller->has_snapshot(test->name(), test->is_hypervisor_snapshot_needed())) {
 			reporter.take_snapshot(controller, test->name());
 			controller->create_snapshot(test->name(), test->cksum, test->is_hypervisor_snapshot_needed());
-			g_io.poll(); if (g_interrupted) { throw Interruption(); }
+			check_interruption();
 		}
 		controller->current_state = test->name();
 	}

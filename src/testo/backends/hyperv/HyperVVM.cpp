@@ -195,23 +195,7 @@ void HyperVVM::remove_disks() {
 				return;
 			} catch (const std::system_error& error) {
 				if (error.code() == std::error_code(ERROR_SHARING_VIOLATION, std::system_category())) {
-					asio::steady_timer timer(g_io);
-					timer.expires_after(1s);
-					std::error_code op_ec;
-					bool done = false;
-					auto prev_cancel = g_cancel_current;
-					g_cancel_current = [&]{ timer.cancel(); };
-					timer.async_wait([&](const std::error_code& ec) {
-						op_ec = ec;
-						done = true;
-					});
-					while (!done) {
-						g_io.run_one();
-					}
-					g_cancel_current = prev_cancel;
-					if (op_ec == asio::error::operation_aborted && g_interrupted) {
-						throw Interruption();
-					}
+					interruptible_sleep_for(1s);
 					continue;
 				} else {
 					throw;

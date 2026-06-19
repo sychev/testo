@@ -223,6 +223,49 @@ void VisitorInterpreterAction::wait_for(std::chrono::steady_clock::duration inte
 > что готово и не жди»; `run` = «работай, пока всё не кончится» (мы почти не
 > используем).
 
+### 3.4. В реальном коде это спрятано в `await_io`
+
+Ручной шаблон из §3.1 important для **понимания**, но писать его руками каждый
+раз — путь к копипаст-багам (одну из 8 копий поправили, остальные забыли). Поэтому
+весь инвариант вынесен в один хелпер `lib/interruption/AsyncOp.hpp`:
+
+```cpp
+template <class Cancellable, class Initiate>
+std::error_code await_io(
+	Cancellable& cancel_target,
+	Initiate&& initiate,
+	std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max());
+```
+
+Он делает ровно то, что расписано выше: сохраняет/подменяет/возвращает
+`g_cancel_current`, крутит `io_context` (берёт его из `cancel_target`), при Ctrl-C
+бросает `Interruption`, а **остальной** `error_code` возвращает вызывающему — тот
+сам решает, что значит ошибка в его контексте. Если передать `deadline`, внутри
+заводится таймер-гонка из §6.
+
+Тот же `wait_for` теперь — одна строка (через обёртку `interruptible_sleep_for`):
+
+```cpp
+void VisitorInterpreterAction::wait_for(std::chrono::steady_clock::duration interval) {
+	interruptible_sleep_for(interval);
+}
+```
+
+А, скажем, чтение из `Channel`:
+
+```cpp
+inline void Channel::read_all(uint8_t* data, size_t size) {
+	auto ec = await_io(socket, [&](auto h){ asio::async_read(socket, asio::buffer(data, size), h); });
+	if (ec) { throw std::system_error(ec); }
+}
+```
+
+Лямбда `[&](auto h){ ... }` — это «как запустить мою async-операцию»: `await_io`
+передаёт в неё готовый handler `h` и просит стартовать ровно один вызов asio.
+
+Дальше по тексту (§4–§6) намеренно разбирается **развёрнутый** вид — так видно
+механику. Но в новом коде ты пишешь `await_io`, а не цикл руками.
+
 ---
 
 ## 4. Контракт прерывания: Ctrl-C без корутин
@@ -324,14 +367,18 @@ arm_signals();
 никто не крутит `g_io`.
 
 Раньше для этого был `coro::CheckPoint()` — «здесь корутину можно отменить».
-Замена — ровно одна строка, расставленная в стратегических местах
+Замена — функция `check_interruption()` (объявлена в
+`lib/testo_runtime/Runtime.hpp`), расставленная в стратегических местах
 интерпретатора:
 
 ```cpp
-g_io.poll(); if (g_interrupted) { throw Interruption(); }
+inline void check_interruption() {
+	g_io.poll();
+	if (g_interrupted) { throw Interruption(); }
+}
 ```
 
-Проговаривание:
+Проговаривание тела:
 
 > «`g_io.poll()` — прокрути `io_context` и выполни всё, что уже готово, **не
 > засыпая**. Если за это время прилетел сигнал — выполнится handler сигнала и
@@ -339,7 +386,8 @@ g_io.poll(); if (g_interrupted) { throw Interruption(); }
 > `Interruption`. Не взведён — иду дальше как ни в чём не бывало. Это дешёвая
 > операция, её можно вставлять между шагами теста.»
 
-Примеры расстановки: `VisitorInterpreter.cpp` (между действиями/тестами),
+В коде это просто `check_interruption();`. Примеры расстановки:
+`VisitorInterpreter.cpp` (между действиями/тестами),
 `VisitorInterpreterActionMachine.cpp`, `Utils.cpp`. Логика выбора мест: «там,
 где между двумя сетевыми ожиданиями может пройти заметное время, дай шанс
 заметить Ctrl-C».
@@ -584,63 +632,50 @@ while (true) {
 
 ## 10. Как написать НОВЫЙ блокирующий фасад (рецепт)
 
-Если тебе нужно добавить новую сетевую операцию, копируй этот скелет:
+В обычном случае руками ничего крутить не надо — бери `await_io`:
 
 ```cpp
 ВозвращаемыйТип do_something(...) {
-	std::error_code op_ec;
-	bool done = false;
+	auto ec = await_io(
+		my_socket,                                          // что отменять / откуда брать io
+		[&](auto h){ asio::async_xxx(my_socket, ..., h); }, // как запустить ОДНУ операцию
+		deadline);                                          // необязательно: дедлайн (см. §6)
 
-	// 1) сохрани и подмени контракт отмены
-	auto prev_cancel = g_cancel_current;
-	g_cancel_current = [&]{ my_socket.cancel(); };   // или timer.cancel()
-
-	// 2) запусти РОВНО ОДНУ async-операцию (или две, если нужен таймаут — см. §6)
-	asio::async_xxx(my_socket, ..., [&](const std::error_code& ec, ...){
-		op_ec = ec;
-		done = true;
-	});
-
-	// 3) крути io_context до завершения своей операции
-	while (!done) {
-		g_io.run_one();          // в общем коде: io.run_one(), io из сокета
-	}
-
-	// 4) верни контракт отмены
-	g_cancel_current = prev_cancel;
-
-	// 5) разбери исход
-	if (op_ec == asio::error::operation_aborted && g_interrupted) {
-		throw Interruption();
-	}
-	if (op_ec) {
-		throw std::system_error(op_ec);
-	}
+	// разбери исход так, как нужно ИМЕННО твоему вызову:
+	if (ec == asio::error::operation_aborted) { throw std::runtime_error("Timeout"); } // если есть дедлайн
+	if (ec) { throw std::system_error(ec); }
 	return ...;
 }
 ```
 
+`await_io` сам сохранит/вернёт `g_cancel_current`, прокрутит `io_context`,
+поймает Ctrl-C (`Interruption`) и, если задан `deadline`, разрулит гонку
+«операция против таймера». Тебе остаётся только решить, что значит оставшийся
+`error_code`. Для «просто поспать» есть `interruptible_sleep_for(d)`, для
+вычислительных пауз — `check_interruption()`.
+
 ### Чеклист и типичные грабли
 
-- ☐ **`done`/`op_ec` на стеке, handler ловит `[&]`.** Не делай их static/членами,
-  если функция реентерабельна. Они живут ровно столько, сколько крутится цикл —
-  это безопасно, потому что из `while(!done)` мы не выйдем, пока handler не
-  отработает.
-- ☐ **Всегда восстанавливай `g_cancel_current`.** Забудешь — и следующий
-  Ctrl-C попадёт в уже мёртвый сокет. Если между захватом и восстановлением
-  может вылететь исключение из твоего же кода — заверни восстановление в RAII
-  (`scope_guard`).
-- ☐ **Две операции → `int outstanding`, не `bool done`.** Цикл должен дождаться
-  завершения **всех** запущенных операций, иначе handler «отменённого»
-  будильника выстрелит уже после выхода из функции — по висячим ссылкам. Это
-  худший вид багов здесь.
-- ☐ **Тот, кто сработал первым, отменяет второго** (`timer.cancel()` /
-  `socket.cancel()`). Иначе зависнешь на второй операции.
-- ☐ **`operation_aborted` многозначен.** Разводи его: `&& g_interrupted` →
-  `Interruption`; иначе (если был таймер) → `Timeout`. Не путай.
-- ☐ **В общем (линкуемом в сервер) коде бери `io` из сокета**, а не из `g_io`.
-- ☐ **Не зови `g_io.run()`** в фасаде — он не вернётся, пока висит
-  `signals.async_wait`. Только `run_one()` в цикле.
+- ☐ **Сначала спроси: подойдёт ли `await_io`?** В 99% случаев — да. Ручной цикл
+  `while(!done) run_one()` пиши только если делаешь что-то принципиально иное
+  (например, последовательный accept на сервере, §8).
+- ☐ **Лямбда-инициатор запускает РОВНО ОДНУ операцию** и передаёт ей `h`. Не
+  запускай в ней две операции — для таймаута есть параметр `deadline`.
+- ☐ **`error_code` разбирает вызывающий.** `await_io` бросает только
+  `Interruption`. Хочешь различать таймаут — сравни с `operation_aborted` (при
+  заданном `deadline` это значит «время вышло»); хочешь игнорировать ошибку
+  (как `wait_for`) — просто не смотри на результат.
+- ☐ **`io` берётся из `cancel_target`.** Поэтому сокет/таймер должны быть
+  привязаны к нужному `io_context` (в хосте — `g_io`; в общем коде — тот, что у
+  сокета). См. §7.
+- ☐ **Если всё же пишешь цикл руками** (редко): не зови `g_io.run()` — он не
+  вернётся, пока висит `signals.async_wait`; только `run_one()`. И всегда
+  восстанавливай `g_cancel_current`.
+
+> Историческая справка: до рефакторинга каждый фасад был развёрнут руками
+> (~20 строк), и инвариант прерывания дублировался в 8 файлах. Теперь он живёт
+> в одном `await_io` — §4–§6 показывают именно тот развёрнутый вид, чтобы было
+> понятно, что хелпер делает внутри.
 
 ---
 
@@ -671,15 +706,17 @@ while (true) {
 | Что | Файл |
 |---|---|
 | Глобалы и обработчик сигнала | `src/testo/main/main.cpp` |
-| Объявление `g_io` | `lib/testo_runtime/Runtime.hpp` |
+| Объявление `g_io`, `check_interruption`, `interruptible_sleep_for` | `lib/testo_runtime/Runtime.hpp` |
 | Контракт прерывания | `lib/interruption/Interruption.hpp` |
+| **Хелпер `await_io`** | `lib/interruption/AsyncOp.hpp` |
 | Простейший фасад (таймер) | `src/testo/visitors/VisitorInterpreterAction.cpp` (`wait_for`) |
-| Фасад с таймаутом (две операции) | `src/testo/backends/qemu/QemuGuestAdditions.cpp` |
+| Фасад с таймаутом (`await_io` + `deadline`) | `src/testo/backends/qemu/QemuGuestAdditions.cpp` |
 | Дедлайны / `DeadlineGuard` | `src/testo_guest_additions_protocol/GuestAdditions.hpp` |
 | Общий код, берущий `io` из сокета | `src/testo_nn_server_protocol/Channel.hpp` |
 | Реконнекты поверх фасадов | `src/testo/NNClient.cpp` |
-| Checkpoints (`poll` + флаг) | `src/testo/visitors/VisitorInterpreter*.cpp` |
+| Checkpoints (`check_interruption`) | `src/testo/visitors/VisitorInterpreter*.cpp` |
 | Последовательный accept (сервер) | `src/testo_guest_additions/src/MainLinux.cpp` |
 
-Удачного онбординга. Если после этого документа `while (!done) g_io.run_one();`
-читается как «спи, пока моя операция не завершится» — ты всё понял правильно.
+Удачного онбординга. Если после этого документа `await_io(socket, ...)`
+читается как «спи, пока моя операция не завершится, и кинь `Interruption`, если
+нажали Ctrl-C» — ты всё понял правильно.

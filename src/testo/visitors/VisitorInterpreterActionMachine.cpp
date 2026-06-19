@@ -171,10 +171,7 @@ void VisitorInterpreterActionMachine::visit_action(std::shared_ptr<AST::Action> 
 		throw std::runtime_error("Should never happen");
 	}
 
-	g_io.poll();
-	if (g_interrupted) {
-		throw Interruption();
-	}
+	check_interruption();
 }
 
 void VisitorInterpreterActionMachine::visit_copy(const IR::Copy& copy) {
@@ -1129,10 +1126,7 @@ bool VisitorInterpreterActionMachine::screenshot_loop(Func&& func, std::chrono::
 		if (interval > end - start) {
 			wait_for(interval - (end - start));
 		} else {
-			g_io.poll();
-			if (g_interrupted) {
-				throw Interruption();
-			}
+			check_interruption();
 		}
 	} while (std::chrono::steady_clock::now() < deadline);
 

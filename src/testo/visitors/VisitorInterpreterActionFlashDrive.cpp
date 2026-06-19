@@ -36,7 +36,7 @@ void VisitorInterpreterActionFlashDrive::visit_action(std::shared_ptr<AST::Actio
 		throw std::runtime_error("Should never happen");
 	}
 
-	g_io.poll(); if (g_interrupted) { throw Interruption(); }
+	check_interruption();
 }
 
 void VisitorInterpreterActionFlashDrive::visit_copy(const IR::Copy& copy) {

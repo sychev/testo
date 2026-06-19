@@ -18,23 +18,9 @@ void ReportWriterNativeRemote::launch_begin(const std::vector<std::shared_ptr<IR
 	}
 
 	{
-		std::error_code op_ec;
-		bool done = false;
-		auto prev_cancel = g_cancel_current;
-		g_cancel_current = [this]{ socket.cancel(); };
-		socket.async_connect(endpoint, [&](const std::error_code& ec) {
-			op_ec = ec;
-			done = true;
-		});
-		while (!done) {
-			g_io.run_one();
-		}
-		g_cancel_current = prev_cancel;
-		if (op_ec == asio::error::operation_aborted && g_interrupted) {
-			throw Interruption();
-		}
-		if (op_ec) {
-			throw std::system_error(op_ec);
+		auto ec = await_io(socket, [&](auto h){ socket.async_connect(endpoint, h); });
+		if (ec) {
+			throw std::system_error(ec);
 		}
 	}
 	send({
@@ -117,44 +103,16 @@ void ReportWriterNativeRemote::launch_end() {
 }
 
 void ReportWriterNativeRemote::read_all(uint8_t* data, size_t size) {
-	std::error_code op_ec;
-	bool done = false;
-	auto prev_cancel = g_cancel_current;
-	g_cancel_current = [this]{ socket.cancel(); };
-	asio::async_read(socket, asio::buffer(data, size), [&](const std::error_code& ec, size_t) {
-		op_ec = ec;
-		done = true;
-	});
-	while (!done) {
-		g_io.run_one();
-	}
-	g_cancel_current = prev_cancel;
-	if (op_ec == asio::error::operation_aborted && g_interrupted) {
-		throw Interruption();
-	}
-	if (op_ec) {
-		throw std::system_error(op_ec);
+	auto ec = await_io(socket, [&](auto h){ asio::async_read(socket, asio::buffer(data, size), h); });
+	if (ec) {
+		throw std::system_error(ec);
 	}
 }
 
 void ReportWriterNativeRemote::write_all(const uint8_t* data, size_t size) {
-	std::error_code op_ec;
-	bool done = false;
-	auto prev_cancel = g_cancel_current;
-	g_cancel_current = [this]{ socket.cancel(); };
-	asio::async_write(socket, asio::buffer(data, size), [&](const std::error_code& ec, size_t) {
-		op_ec = ec;
-		done = true;
-	});
-	while (!done) {
-		g_io.run_one();
-	}
-	g_cancel_current = prev_cancel;
-	if (op_ec == asio::error::operation_aborted && g_interrupted) {
-		throw Interruption();
-	}
-	if (op_ec) {
-		throw std::system_error(op_ec);
+	auto ec = await_io(socket, [&](auto h){ asio::async_write(socket, asio::buffer(data, size), h); });
+	if (ec) {
+		throw std::system_error(ec);
 	}
 }
 

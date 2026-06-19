@@ -40,7 +40,7 @@ void fs_copy_file(const fs::path& from, const fs::path& to) {
 
 	while ((size = source.read(buf, sizeof(buf))) > 0) {
 		dest.write(buf, size);
-		g_io.poll(); if (g_interrupted) { throw Interruption(); }
+		check_interruption();
 	}
 }
 
