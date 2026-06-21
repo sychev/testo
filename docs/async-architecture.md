@@ -1033,7 +1033,8 @@ while (true) {
 
 | Что | Файл |
 |---|---|
-| Глобалы и обработчик сигнала | `src/testo/main/main.cpp` |
+| Определения глобалов (`g_io`, `g_interrupted`, …) | `src/testo/Runtime.cpp` (в `testo_core`, чтобы их видел и `testo_unit_tests`) |
+| Обработчик сигнала / точка входа | `src/testo/main/main.cpp` |
 | Объявление `g_io`, `check_interruption`, `interruptible_sleep_for` | `lib/testo_runtime/Runtime.hpp` |
 | Контракт прерывания | `lib/interruption/Interruption.hpp` |
 | **Хелпер `await_io`** | `lib/interruption/AsyncOp.hpp` |

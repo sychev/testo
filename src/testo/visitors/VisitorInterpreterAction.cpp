@@ -5,8 +5,6 @@
 #include <testo_runtime/Runtime.hpp>
 #include "../Logger.hpp"
 
-extern std::atomic<bool> REPL_mode_is_active;
-
 void VisitorInterpreterAction::wait_for(std::chrono::steady_clock::duration interval) {
 	interruptible_sleep_for(interval);
 }

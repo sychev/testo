@@ -22,6 +22,9 @@ list(APPEND SRC_DIRS "resolver/*.cpp")
 list(APPEND SRC_DIRS "visitors/*.cpp")
 
 file(GLOB SRCS ${SRC_DIRS})
+# main.cpp хранит точку входа и не входит в testo_core. Определения процесс-
+# глобалов (g_io и пр.) вынесены в Runtime.cpp (рядом, попадает в testo_core по
+# GLOB выше), чтобы их видел и testo_unit_tests, а не только бинарь с main.cpp.
 list(REMOVE_ITEM SRCS ${CMAKE_CURRENT_SOURCE_DIR}/main/main.cpp)
 
 add_library(testo_core ${SRCS})

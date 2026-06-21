@@ -29,15 +29,11 @@
 
 using namespace clipp;
 
-// Единственный io_context хостового процесса (объявлен в Runtime.hpp).
-asio::io_context g_io;
-
-// Контракт прерывания (объявлен в Interruption.hpp). Взводится обработчиком
-// сигнала; g_cancel_current выставляют блокирующие фасады на время операции.
-std::atomic<bool> g_interrupted(false);
-std::function<void()> g_cancel_current;
-
-std::atomic<bool> REPL_mode_is_active(false);
+// Определения процесс-глобальных переменных (g_io, g_interrupted,
+// g_cancel_current, REPL_mode_is_active) живут в Runtime.cpp — он попадает в
+// testo_core, поэтому их видят все хостовые бинари (и testo, и testo_unit_tests),
+// а не только тот, что линкует этот main.cpp. Здесь они доступны как extern
+// через <testo_runtime/Runtime.hpp>.
 
 enum class mode {
 	run,
