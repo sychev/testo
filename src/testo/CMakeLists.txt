@@ -45,6 +45,7 @@ endif()
 add_executable(testo ${CMAKE_CURRENT_SOURCE_DIR}/main/main.cpp)
 target_link_libraries(testo testo_core)
 
+# Юнит-тесты на Catch (unit_tests/*.cpp); линкуются с testo_core.
 file(GLOB UNIT_TESTS_SRCS "unit_tests/*.cpp")
 add_executable(testo_unit_tests ${UNIT_TESTS_SRCS})
 target_link_libraries(testo_unit_tests testo_core)
