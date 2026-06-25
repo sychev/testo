@@ -92,6 +92,10 @@ void remote_handler(HostMessageHandler& message_handler) {
 	}
 #elif __HYPERV__
 	asio::io_context io;
+	// Якорь работы: без него io_context после первой операции «осушается» и
+	// переходит в stopped, и следующий run_one() начинает крутить вхолостую
+	// (зависание). На хосте ту же роль играет вечный signals.async_wait на g_io.
+	auto io_work = asio::make_work_guard(io);
 	hyperv::VSocketEndpoint endpoint(HYPERV_PORT);
 	asio::basic_socket_acceptor<hyperv::VSocketProtocol> acceptor(io);
 	acceptor.open(endpoint.protocol());
@@ -180,6 +184,9 @@ void local_handler(CLIMessageHandler& message_handler) {
 	::unlink(socket_path);
 
 	asio::io_context io;
+	// Якорь работы (см. комментарий в remote_handler): не даём io_context уйти в
+	// stopped между операциями, иначе run_one() зависает на busy-loop.
+	auto io_work = asio::make_work_guard(io);
 	asio::local::stream_protocol::endpoint endpoint(socket_path);
 	asio::local::stream_protocol::acceptor acceptor(io, endpoint);
 	while (true) {

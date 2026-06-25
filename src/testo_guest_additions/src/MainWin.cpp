@@ -30,6 +30,10 @@ using namespace std::chrono_literals;
 // io_context службы (заменяет coro::Application). Останавливается из
 // ControlHandler при остановке службы.
 asio::io_context g_io_daemon;
+// Якорь работы: не даём io_context уйти в stopped между операциями, иначе
+// run_one() виснет на busy-loop. Сервис всё равно останавливается явно через
+// g_io_daemon.stop() в ControlHandler — work guard этому не мешает.
+asio::executor_work_guard<asio::io_context::executor_type> g_io_daemon_work{asio::make_work_guard(g_io_daemon)};
 std::atomic<bool> g_daemon_stopping{false};
 
 void remote_handler(HostMessageHandler& message_handler) {

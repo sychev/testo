@@ -53,6 +53,9 @@ private:
 	}
 
 	asio::io_context io;
+	// Якорь работы: иначе io_context после connect «осушается» и переходит в
+	// stopped, и следующий run_one() (в send_raw/recv_raw) виснет на busy-loop.
+	asio::executor_work_guard<asio::io_context::executor_type> io_work{asio::make_work_guard(io)};
 	asio::local::stream_protocol::socket socket{io};
 };
 #else
