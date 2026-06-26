@@ -33,7 +33,7 @@ void QemuGuestAdditions::send_raw(const uint8_t* data, size_t size) {
 		[&](auto h){ asio::async_write(socket, asio::buffer(data, size), h); },
 		deadline);
 	if (ec == asio::error::operation_aborted) {
-		throw std::runtime_error("Timeout");
+		throw std::runtime_error("Timeout was triggered");
 	}
 	if (ec) {
 		throw std::system_error(ec);
@@ -45,7 +45,7 @@ void QemuGuestAdditions::recv_raw(uint8_t* data, size_t size) {
 		[&](auto h){ asio::async_read(socket, asio::buffer(data, size), h); },
 		deadline);
 	if (ec == asio::error::operation_aborted) {
-		throw std::runtime_error("Timeout");
+		throw std::runtime_error("Timeout was triggered");
 	}
 	if (ec) {
 		throw std::system_error(ec);

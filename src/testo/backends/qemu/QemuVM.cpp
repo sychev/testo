@@ -1907,7 +1907,7 @@ void QemuVM::resume() {
 					return;
 				} else {
 					if (std::chrono::steady_clock::now() > deadline) {
-						throw std::runtime_error("Timeout");
+						throw std::runtime_error("Timeout was triggered");
 					}
 					interruptible_sleep_for(100ms);
 				}

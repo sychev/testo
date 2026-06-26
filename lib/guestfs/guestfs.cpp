@@ -92,7 +92,7 @@ void Guestfs::upload_file(const fs::path& from, const fs::path& to) {
 			throw Interruption();
 		}
 		if (std::chrono::steady_clock::now() > deadline) {
-			throw std::runtime_error("Timeout");
+			throw std::runtime_error("Timeout was triggered");
 		}
 	}
 }
@@ -172,7 +172,7 @@ void Guestfs::download_file(const fs::path& from, const fs::path& to) {
 			throw Interruption();
 		}
 		if (std::chrono::steady_clock::now() > deadline) {
-			throw std::runtime_error("Timeout");
+			throw std::runtime_error("Timeout was triggered");
 		}
 	}
 }

@@ -34,7 +34,7 @@ struct TestGA: GuestAdditions {
 	void recv_raw(uint8_t* data, size_t size) override {
 		auto ec = await_io(sock, [&](auto h){ asio::async_read(sock, asio::buffer(data, size), h); }, deadline);
 		if (ec == asio::error::operation_aborted) {
-			throw std::runtime_error("Timeout");
+			throw std::runtime_error("Timeout was triggered");
 		}
 		if (ec) {
 			throw std::system_error(ec);

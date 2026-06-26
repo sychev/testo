@@ -594,7 +594,7 @@ std::error_code await_io(
 > отменили), `--outstanding` (→0). Цикл выходит. В хвосте: `operation_aborted`,
 > но `g_interrupted == false` (Ctrl-C не было) → `Interruption` не бросаю,
 > **возвращаю** `operation_aborted`. Уже `recv_raw` превратит его в
-> `throw std::runtime_error("Timeout")`.
+> `throw std::runtime_error("Timeout was triggered")`.
 >
 > **Нажали Ctrl-C.** Обработчик сигнала (§4) взвёл `g_interrupted` и позвал
 > `g_cancel_current()` — а это сейчас «отмени мой сокет». Чтение завершается с
@@ -930,7 +930,7 @@ void QemuGuestAdditions::recv_raw(uint8_t* data, size_t size) {
 		throw Interruption();         // это был Ctrl-C
 	}
 	if (op_ec == asio::error::operation_aborted) {
-		throw std::runtime_error("Timeout");  // а это таймаут
+		throw std::runtime_error("Timeout was triggered");  // а это таймаут
 	}
 	if (op_ec) {
 		throw std::system_error(op_ec);       // любая другая сетевая ошибка
@@ -961,7 +961,7 @@ void QemuGuestAdditions::recv_raw(uint8_t* data, size_t size) {
 > завершился он с `op_ec == operation_aborted` (мы же только что отменили
 > сокет), `--outstanding` → 0. Цикл заканчивается. Дальше проверки: это
 > `operation_aborted`, но `g_interrupted` НЕ взведён (Ctrl-C не было) → значит,
-> бросаю `std::runtime_error("Timeout")`.»
+> бросаю `std::runtime_error("Timeout was triggered")`.»
 
 Видишь, как один и тот же `operation_aborted` на сокете разводится по двум
 веткам исключений в зависимости от `g_interrupted`. Это та самая причина, по
@@ -1218,7 +1218,7 @@ HyperV-`remote_handler` в `MainLinux.cpp`, `io` в `CLI.cpp`, `g_io_daemon` в
 		deadline);                                          // необязательно: дедлайн (см. §6)
 
 	// разбери исход так, как нужно ИМЕННО твоему вызову:
-	if (ec == asio::error::operation_aborted) { throw std::runtime_error("Timeout"); } // если есть дедлайн
+	if (ec == asio::error::operation_aborted) { throw std::runtime_error("Timeout was triggered"); } // если есть дедлайн
 	if (ec) { throw std::system_error(ec); }
 	return ...;
 }
