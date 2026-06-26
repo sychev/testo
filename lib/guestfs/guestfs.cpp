@@ -5,6 +5,18 @@
 
 namespace guestfs {
 
+namespace {
+// guestfs_last_error() может вернуть NULL — например, когда launch упал, а
+// строка ошибки не записана (тем более что error handler отключён через
+// guestfs_set_error_handler(handle, NULL, NULL)). Передавать NULL в
+// std::runtime_error/std::string нельзя — это UB и сегфолт. Поэтому всегда
+// оборачиваем в безопасную строку.
+std::string last_error_str(guestfs_h* handle) {
+	const char* err = guestfs_last_error(handle);
+	return err ? std::string(err) : std::string("unknown libguestfs error (no message; check libguestfs verbose log)");
+}
+}
+
 Guestfs::Guestfs(const fs::path& path) {
 	handle = guestfs_create();
 	if (!handle) {
@@ -33,7 +45,7 @@ std::vector<std::string> Guestfs::list_partitions() const {
 	std::vector<std::string> result;
 	char** partitions = guestfs_list_partitions(handle);
 	if (!partitions) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 
 	for (size_t i = 0; partitions[i] != nullptr; i++) {
@@ -47,7 +59,7 @@ std::vector<std::string> Guestfs::list_partitions() const {
 
 void Guestfs::part_disk() {
 	if (guestfs_part_disk(handle, "/dev/sda", "mbr") < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 }
 
@@ -58,7 +70,7 @@ void Guestfs::mkfs(const std::string& fs) {
 	}
 
 	if (guestfs_mkfs(handle, fs.c_str(), partitions[0].c_str()) < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 }
 
@@ -69,14 +81,14 @@ void Guestfs::mount() {
 	}
 
 	if (guestfs_mount(handle, partitions[0].c_str(), "/") < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 	is_mounted = true;
 }
 
 void Guestfs::mkdir_p(const fs::path& dir) {
 	if (guestfs_mkdir_p(handle, dir.generic_string().c_str()) < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 }
 
@@ -182,21 +194,21 @@ void Guestfs::download_file(const fs::path& from, const fs::path& to) {
 
 void Guestfs::umount() {
 	if (guestfs_umount(handle, "/") < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 	is_mounted = false;
 }
 
 void Guestfs::touch(const fs::path& path) {
 	if (guestfs_touch(handle, path.generic_string().c_str())) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 }
 
 bool Guestfs::exists(const fs::path& path) {
 	int result = guestfs_exists(handle, path.generic_string().c_str());
 	if (result < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 	return result;
 }
@@ -204,7 +216,7 @@ bool Guestfs::exists(const fs::path& path) {
 bool Guestfs::is_file(const fs::path& path) {
 	int result = guestfs_is_file(handle, path.generic_string().c_str());
 	if (result < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 	return result;
 }
@@ -212,7 +224,7 @@ bool Guestfs::is_file(const fs::path& path) {
 bool Guestfs::is_dir(const fs::path& path) {
 	int result = guestfs_is_dir(handle, path.generic_string().c_str());
 	if (result < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 	return result;
 }
@@ -221,7 +233,7 @@ std::vector<fs::path> Guestfs::ls(const fs::path& dir) const {
 	char** ls_result = guestfs_ls(handle, dir.generic_string().c_str());
 
 	if (!ls_result) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 
 	std::vector<fs::path> result;
@@ -237,7 +249,7 @@ std::vector<fs::path> Guestfs::ls(const fs::path& dir) const {
 
 void Guestfs::add_drive(const fs::path& path) {
 	if (guestfs_add_drive(handle, path.generic_string().c_str()) < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 }
 
@@ -246,14 +258,14 @@ void Guestfs::launch() {
 		throw std::runtime_error("Guestfs is already launched");
 	}
 	if (guestfs_launch(handle) < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 	is_launched = true;
 }
 
 void Guestfs::shutdown() {
 	if (guestfs_shutdown(handle) < 0) {
-		throw std::runtime_error(guestfs_last_error(handle));
+		throw std::runtime_error(last_error_str(handle));
 	}
 	is_launched = false;
 }

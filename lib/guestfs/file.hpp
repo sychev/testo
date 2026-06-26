@@ -19,7 +19,8 @@ struct File {
 			throw std::runtime_error(__PRETTY_FUNCTION__);
 		}
 		if (guestfs_touch(handle, path.generic_string().c_str()) < 0) {
-			throw std::runtime_error(guestfs_last_error(handle));
+			const char* err = guestfs_last_error(handle);
+			throw std::runtime_error(err ? err : "unknown libguestfs error");
 		}
 	}
 
@@ -31,7 +32,8 @@ struct File {
 		auto result = guestfs_pread(handle, path.generic_string().c_str(), size, current_offset, &read_bytes);
 
 		if (!result) {
-			throw std::runtime_error(guestfs_last_error(handle));
+			const char* err = guestfs_last_error(handle);
+			throw std::runtime_error(err ? err : "unknown libguestfs error");
 		}
 
 		std::memcpy((void*)data, (void*)result, read_bytes);
@@ -44,7 +46,8 @@ struct File {
 
 	size_t write(const uint8_t* data, size_t size) {
 		if (guestfs_write_append(handle, path.generic_string().c_str(), (char*)data, size) < 0) {
-			throw std::runtime_error(guestfs_last_error(handle));
+			const char* err = guestfs_last_error(handle);
+			throw std::runtime_error(err ? err : "unknown libguestfs error");
 		}
 		return size;
 	}
