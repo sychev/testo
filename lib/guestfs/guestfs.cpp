@@ -1,7 +1,7 @@
 
 #include "guestfs.hpp"
 #include "posixapi/File.hpp"
-#include <testo_runtime/Runtime.hpp>
+#include <interruption/Interruption.hpp>
 
 namespace guestfs {
 
@@ -87,7 +87,10 @@ void Guestfs::upload_file(const fs::path& from, const fs::path& to) {
 	size_t size;
 	while ((size = source.read(buf, sizeof(buf))) > 0) {
 		dest.write(buf, size);
-		g_io.poll();
+		// Не качаем g_io здесь (guestfs — общая либа, не должна тянуть хостовый
+		// io_context). Проверяем только взведённый флаг прерывания и дедлайн.
+		// Минус: Ctrl-C, пришедший прямо во время копии, заметится только по её
+		// завершении — для локального копирования на образ это приемлемо.
 		if (g_interrupted) {
 			throw Interruption();
 		}
@@ -167,7 +170,7 @@ void Guestfs::download_file(const fs::path& from, const fs::path& to) {
 	size_t size;
 	while ((size = source.read(buf, sizeof(buf))) > 0) {
 		dest.write(buf, size);
-		g_io.poll();
+		// см. комментарий в upload_file: g_io здесь не качаем.
 		if (g_interrupted) {
 			throw Interruption();
 		}
